@@ -22,11 +22,6 @@ MCP server for controlling Behringer X32/M32 digital mixing consoles via OSC pro
 ## Installation
 
 ```bash
-npm install -g x-m32-mcp-server
-```
-
-Or from source:
-```bash
 git clone https://github.com/GoBeromsu/X32-MCP.git
 cd X32-MCP
 npm install && npm run build
