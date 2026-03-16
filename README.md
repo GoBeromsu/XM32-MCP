@@ -21,15 +21,7 @@ MCP server for controlling Behringer X32/M32 digital mixing consoles via OSC pro
 
 ## Installation
 
-```bash
-git clone https://github.com/GoBeromsu/X32-MCP.git
-cd X32-MCP
-npm install && npm run build
-```
-
-## MCP Client Configuration
-
-### Claude Desktop
+### Recommended: Published package (quick start)
 
 Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
@@ -44,6 +36,32 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 }
 ```
 
+This runs the published npm package, so you do not need to clone this repo.
+
+### From source: Local checkout
+
+```bash
+git clone https://github.com/GoBeromsu/X32-MCP.git
+cd X32-MCP
+npm install
+npm run build
+```
+
+Then point Claude Desktop at the local build output:
+
+```json
+{
+    "mcpServers": {
+        "x32": {
+            "command": "node",
+            "args": ["/absolute/path/to/X32-MCP/dist/index.js"]
+        }
+    }
+}
+```
+
+After code changes, run `npm run build` again so Claude Desktop uses the updated `dist/` output.
+
 ### Connect to Mixer
 
 ```
@@ -52,38 +70,38 @@ connection_connect with host="192.168.1.100" and port=10023
 
 ## Available Tools (21 total)
 
-| Tool | Parameters |
-|------|------------|
-| **Connection (4)** |  |
-| `connection_connect` | `host`, `port` |
-| `connection_disconnect` | - |
-| `connection_get_info` | - |
-| `connection_get_status` | - |
-| **Channel (8)** |  |
-| `channel_set_volume` | `channel`, `value`, `unit` |
-| `channel_set_gain` | `channel`, `gain` |
-| `channel_mute` | `channel`, `muted` |
-| `channel_solo` | `channel`, `solo` |
-| `channel_set_name` | `channel`, `name` |
-| `channel_set_color` | `channel`, `color` |
-| `channel_set_pan` | `channel`, `pan` |
-| `channel_set_eq_band` | `channel`, `band`, `parameter`, `value` |
-| **Bus (4)** |  |
-| `bus_set_volume` | `bus`, `value`, `unit` |
-| `bus_mute` | `bus`, `muted` |
-| `bus_set_send` | `channel`, `bus`, `value`, `unit` |
-| `bus_get_state` | `bus` |
-| **FX (3)** |  |
-| `fx_set_parameter` | `fx`, `parameter`, `value` |
-| `fx_get_state` | `fx` |
-| `fx_bypass` | `fx`, `bypass` |
-| **Main/Monitor (3)** |  |
-| `main_set_volume` | `value`, `unit` |
-| `main_mute` | `muted` |
-| `monitor_set_level` | `value`, `unit` |
-| **Low-Level (2)** |  |
-| `get_parameter` | `address` |
-| `set_parameter` | `address`, `value` |
+| Tool                    | Parameters                              |
+| ----------------------- | --------------------------------------- |
+| **Connection (4)**      |                                         |
+| `connection_connect`    | `host`, `port`                          |
+| `connection_disconnect` | -                                       |
+| `connection_get_info`   | -                                       |
+| `connection_get_status` | -                                       |
+| **Channel (8)**         |                                         |
+| `channel_set_volume`    | `channel`, `value`, `unit`              |
+| `channel_set_gain`      | `channel`, `gain`                       |
+| `channel_mute`          | `channel`, `muted`                      |
+| `channel_solo`          | `channel`, `solo`                       |
+| `channel_set_name`      | `channel`, `name`                       |
+| `channel_set_color`     | `channel`, `color`                      |
+| `channel_set_pan`       | `channel`, `pan`                        |
+| `channel_set_eq_band`   | `channel`, `band`, `parameter`, `value` |
+| **Bus (4)**             |                                         |
+| `bus_set_volume`        | `bus`, `value`, `unit`                  |
+| `bus_mute`              | `bus`, `muted`                          |
+| `bus_set_send`          | `channel`, `bus`, `value`, `unit`       |
+| `bus_get_state`         | `bus`                                   |
+| **FX (3)**              |                                         |
+| `fx_set_parameter`      | `fx`, `parameter`, `value`              |
+| `fx_get_state`          | `fx`                                    |
+| `fx_bypass`             | `fx`, `bypass`                          |
+| **Main/Monitor (3)**    |                                         |
+| `main_set_volume`       | `value`, `unit`                         |
+| `main_mute`             | `muted`                                 |
+| `monitor_set_level`     | `value`, `unit`                         |
+| **Low-Level (2)**       |                                         |
+| `get_parameter`         | `address`                               |
+| `set_parameter`         | `address`, `value`                      |
 
 ## Quick Tips
 
@@ -96,6 +114,7 @@ connection_connect with host="192.168.1.100" and port=10023
 ## Parameter Reference
 
 ### Common Parameters
+
 - `channel`: 1-32
 - `bus`: 1-16
 - `fx`: 1-8
@@ -107,12 +126,12 @@ connection_connect with host="192.168.1.100" and port=10023
 - `parameter`: "f" (frequency), "g" (gain), "q" (Q factor)
 
 ### Value Ranges
+
 - Volume linear: 0.0-1.0 (unity = 0.75)
 - Volume dB: -90 to +10 (unity = 0 dB)
 - Gain: 0.0-1.0
 - FX parameter: 0.0-1.0
 - Channel name: max 12 characters
-
 
 ## License
 
