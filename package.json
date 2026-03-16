@@ -38,7 +38,7 @@
     "scripts": {
         "fetch:spec-types": "tsx scripts/fetch-spec-types.ts",
         "typecheck": "tsc -p tsconfig.json --noEmit",
-        "build": "tsc -p tsconfig.prod.json",
+        "build": "tsc -p tsconfig.prod.json --noCheck",
         "build:watch": "tsc -p tsconfig.prod.json -w",
         "examples:simple-server:w": "tsx --watch src/examples/server/simpleStreamableHttp.ts --oauth",
         "prepack": "npm run build",
