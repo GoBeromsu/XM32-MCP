@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { X32Connection } from '../services/x32-connection.js';
+import { X32Error } from '../utils/error-helper.js';
 import { createErrorResult, createStructuredTextResult } from './tool-response.js';
 
 type FxSetParameterArgs = {
@@ -16,12 +17,6 @@ type FxBypassArgs = {
     fx: number;
     bypass: boolean;
 };
-
-const fxStateOutputSchema = z.object({
-    fx: z.number(),
-    type: z.number(),
-    parameters: z.record(z.number())
-});
 
 /**
  * FX (effects) domain tools
@@ -53,15 +48,7 @@ function registerFxSetParameterTool(server: McpServer, connection: X32Connection
         },
         async ({ fx, parameter, value }: FxSetParameterArgs): Promise<CallToolResult> => {
             if (!connection.connected) {
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: 'Not connected to X32/M32 mixer. Use connection_connect first.'
-                        }
-                    ],
-                    isError: true
-                };
+                return createErrorResult(X32Error.notConnected());
             }
 
             try {
@@ -122,7 +109,6 @@ function registerFxGetStateTool(server: McpServer, connection: X32Connection): v
             inputSchema: {
                 fx: z.number().min(1).max(8).describe('Effects rack number from 1 to 8')
             },
-            outputSchema: fxStateOutputSchema,
             annotations: {
                 readOnlyHint: true,
                 destructiveHint: false,
@@ -132,7 +118,7 @@ function registerFxGetStateTool(server: McpServer, connection: X32Connection): v
         },
         async ({ fx }: FxGetStateArgs): Promise<CallToolResult> => {
             if (!connection.connected) {
-                return createErrorResult('Not connected to X32/M32 mixer. Use connection_connect first.');
+                return createErrorResult(X32Error.notConnected());
             }
 
             try {
@@ -198,15 +184,7 @@ function registerFxBypassTool(server: McpServer, connection: X32Connection): voi
         },
         async ({ fx, bypass }: FxBypassArgs): Promise<CallToolResult> => {
             if (!connection.connected) {
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: 'Not connected to X32/M32 mixer. Use connection_connect first.'
-                        }
-                    ],
-                    isError: true
-                };
+                return createErrorResult(X32Error.notConnected());
             }
 
             try {

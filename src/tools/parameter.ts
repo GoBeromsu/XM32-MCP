@@ -12,12 +12,6 @@ type SetParameterArgs = {
     value: string | number;
 };
 
-const getParameterOutputSchema = z.object({
-    address: z.string(),
-    valueType: z.enum(['string', 'number', 'boolean', 'buffer', 'array', 'object', 'null', 'unknown']),
-    value: z.unknown()
-});
-
 function getOscValueType(value: unknown): 'string' | 'number' | 'boolean' | 'buffer' | 'array' | 'object' | 'null' | 'unknown' {
     if (value === null) {
         return 'null';
@@ -65,7 +59,6 @@ function registerGetParameterTool(server: McpServer, connection: X32Connection):
                         'OSC address pattern for the parameter to read (e.g., "/ch/01/mix/fader" for channel 1 fader level, "/main/st/mix/fader" for main stereo fader, "/ch/01/eq/1/f" for channel 1 EQ band 1 frequency)'
                     )
             },
-            outputSchema: getParameterOutputSchema,
             annotations: {
                 readOnlyHint: true,
                 destructiveHint: false,

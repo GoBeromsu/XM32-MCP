@@ -90,13 +90,6 @@ describe('MCP Tool Contracts', () => {
         expect(toolNames).toContain('bus_get_state');
         expect(toolNames).toContain('fx_get_state');
         expect(toolNames).toContain('get_parameter');
-
-        expect(tools.find(tool => tool.name === 'connection_get_info')?.outputSchema).toBeDefined();
-        expect(tools.find(tool => tool.name === 'connection_get_status')?.outputSchema).toBeDefined();
-        expect(tools.find(tool => tool.name === 'channel_get_state')?.outputSchema).toBeDefined();
-        expect(tools.find(tool => tool.name === 'bus_get_state')?.outputSchema).toBeDefined();
-        expect(tools.find(tool => tool.name === 'fx_get_state')?.outputSchema).toBeDefined();
-        expect(tools.find(tool => tool.name === 'get_parameter')?.outputSchema).toBeDefined();
     });
 
     test('query tools return structuredContent for agent-friendly tool chaining', async () => {

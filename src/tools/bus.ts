@@ -2,10 +2,10 @@ import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { X32Connection } from '../services/x32-connection.js';
-import { dbToFader, faderToDb, formatDb } from '../utils/db-converter.js';
+import { faderToDb, formatDb } from '../utils/db-converter.js';
+import { X32Error } from '../utils/error-helper.js';
 import { createErrorResult, createStructuredTextResult } from './tool-response.js';
-
-type VolumeUnit = 'linear' | 'db';
+import { volumeUnitSchema, resolveVolume, type VolumeUnit } from './schemas.js';
 type BusSetVolumeArgs = {
     bus: number;
     value: number;
@@ -13,7 +13,7 @@ type BusSetVolumeArgs = {
 };
 type BusMuteArgs = {
     bus: number;
-    muted: boolean;
+    mute: boolean;
 };
 type BusSetSendArgs = {
     channel: number;
@@ -24,20 +24,6 @@ type BusSetSendArgs = {
 type BusGetStateArgs = {
     bus: number;
 };
-
-const busStateOutputSchema = z.object({
-    bus: z.number(),
-    name: z.string().nullable(),
-    color: z.number().nullable(),
-    fader: z.object({
-        linear: z.number(),
-        db: z.number().nullable(),
-        formatted: z.string()
-    }),
-    muted: z.boolean(),
-    on: z.number(),
-    pan: z.number()
-});
 
 /**
  * Bus domain tools
@@ -58,10 +44,7 @@ function registerBusSetVolumeTool(server: McpServer, connection: X32Connection):
             inputSchema: z.object({
                 bus: z.number().min(1).max(16).describe('Mix bus number from 1 to 16'),
                 value: z.number().describe('Volume value (interpretation depends on unit parameter)'),
-                unit: z
-                    .enum(['linear', 'db'])
-                    .default('linear')
-                    .describe('Unit of the value: "linear" (0.0-1.0) or "db" (-90 to +10 dB). Default is "linear".')
+                unit: volumeUnitSchema('-90 to +10 dB')
             }),
             annotations: {
                 readOnlyHint: false,
@@ -72,60 +55,22 @@ function registerBusSetVolumeTool(server: McpServer, connection: X32Connection):
         },
         async ({ bus, value, unit = 'linear' }: BusSetVolumeArgs): Promise<CallToolResult> => {
             if (!connection.connected) {
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: 'Not connected to X32/M32 mixer. First, establish connection using connection_connect tool with parameters:\n  - host: IP address of mixer (e.g., "192.168.1.100")\n  - port: OSC port, typically 10023\n\nExample: connection_connect with host="192.168.1.100" and port=10023'
-                        }
-                    ],
-                    isError: true
-                };
+                return createErrorResult(X32Error.notConnected());
             }
 
             try {
-                let faderValue: number;
-                let dbValue: number;
-
-                if (unit === 'db') {
-                    // Input is in dB
-                    if (value < -90 || value > 10) {
-                        return {
-                            content: [
-                                {
-                                    type: 'text',
-                                    text: `Invalid dB value: ${value} dB. Must be between -90 and +10 dB.\n\nValid range:\n  - Minimum: -90 dB (silence)\n  - Unity gain: 0 dB (no boost/cut)\n  - Maximum: +10 dB (boost)\n\nExamples:\n  - Set to -6 dB: value=-6, unit="db"\n  - Set to unity: value=0, unit="db"\n  - Set to +3 dB: value=3, unit="db"`
-                                }
-                            ],
-                            isError: true
-                        };
-                    }
-                    dbValue = value;
-                    faderValue = dbToFader(value);
-                } else {
-                    // Input is linear
-                    if (value < 0 || value > 1) {
-                        return {
-                            content: [
-                                {
-                                    type: 'text',
-                                    text: `Invalid linear value: ${value}. Must be between 0.0 and 1.0.\n\nLinear scale explanation:\n  - 0.0 = -∞ dB (silence)\n  - 0.75 = 0 dB (unity gain, no boost/cut)\n  - 1.0 = +10 dB (maximum)\n\nExamples:\n  - Set to silence: value=0.0\n  - Set to unity gain: value=0.75\n  - Set to half volume: value=0.5\n\nAlternatively, use unit="db" for decibel values (-90 to +10 dB).`
-                                }
-                            ],
-                            isError: true
-                        };
-                    }
-                    faderValue = value;
-                    dbValue = faderToDb(value);
+                const resolved = resolveVolume(value, unit, [-90, 10]);
+                if ('error' in resolved) {
+                    return createErrorResult(resolved.error);
                 }
 
-                await connection.setBusParameter(bus, 'mix/fader', faderValue);
+                await connection.setBusParameter(bus, 'mix/fader', resolved.linear);
 
                 return {
                     content: [
                         {
                             type: 'text',
-                            text: `Set bus ${bus} to ${formatDb(dbValue)} (linear: ${faderValue.toFixed(3)})`
+                            text: `Set bus ${bus} to ${formatDb(resolved.db)} (linear: ${resolved.linear.toFixed(3)})`
                         }
                     ]
                 };
@@ -156,7 +101,7 @@ function registerBusMuteTool(server: McpServer, connection: X32Connection): void
             description: 'Mute or unmute a specific mix bus on the X32/M32 mixer. This controls the bus on/off state.',
             inputSchema: {
                 bus: z.number().min(1).max(16).describe('Mix bus number from 1 to 16'),
-                muted: z.boolean().describe('True to mute the bus, false to unmute')
+                mute: z.boolean().describe('True to mute the bus, false to unmute')
             },
             annotations: {
                 readOnlyHint: false,
@@ -165,28 +110,20 @@ function registerBusMuteTool(server: McpServer, connection: X32Connection): void
                 openWorldHint: true
             }
         },
-        async ({ bus, muted }: BusMuteArgs): Promise<CallToolResult> => {
+        async ({ bus, mute }: BusMuteArgs): Promise<CallToolResult> => {
             if (!connection.connected) {
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: 'Not connected to X32/M32 mixer. First, establish connection using connection_connect tool with parameters:\n  - host: IP address of mixer (e.g., "192.168.1.100")\n  - port: OSC port, typically 10023\n\nExample: connection_connect with host="192.168.1.100" and port=10023'
-                        }
-                    ],
-                    isError: true
-                };
+                return createErrorResult(X32Error.notConnected());
             }
 
             try {
                 // X32 uses inverted logic: 0 = muted, 1 = unmuted
-                const onValue = muted ? 0 : 1;
+                const onValue = mute ? 0 : 1;
                 await connection.setBusParameter(bus, 'mix/on', onValue);
                 return {
                     content: [
                         {
                             type: 'text',
-                            text: `Bus ${bus} ${muted ? 'muted' : 'unmuted'}`
+                            text: `Bus ${bus} ${mute ? 'muted' : 'unmuted'}`
                         }
                     ]
                 };
@@ -195,7 +132,7 @@ function registerBusMuteTool(server: McpServer, connection: X32Connection): void
                     content: [
                         {
                             type: 'text',
-                            text: `Failed to ${muted ? 'mute' : 'unmute'} bus: ${error instanceof Error ? error.message : String(error)}`
+                            text: `Failed to ${mute ? 'mute' : 'unmute'} bus: ${error instanceof Error ? error.message : String(error)}`
                         }
                     ],
                     isError: true
@@ -220,10 +157,7 @@ function registerBusSetSendTool(server: McpServer, connection: X32Connection): v
                 channel: z.number().min(1).max(32).describe('Input channel number from 1 to 32'),
                 bus: z.number().min(1).max(16).describe('Mix bus number from 1 to 16'),
                 value: z.number().describe('Send level value (interpretation depends on unit parameter)'),
-                unit: z
-                    .enum(['linear', 'db'])
-                    .default('linear')
-                    .describe('Unit of the value: "linear" (0.0-1.0) or "db" (-90 to +10 dB). Default is "linear".')
+                unit: volumeUnitSchema('-90 to +10 dB')
             },
             annotations: {
                 readOnlyHint: false,
@@ -234,51 +168,13 @@ function registerBusSetSendTool(server: McpServer, connection: X32Connection): v
         },
         async ({ channel, bus, value, unit = 'linear' }: BusSetSendArgs): Promise<CallToolResult> => {
             if (!connection.connected) {
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: 'Not connected to X32/M32 mixer. First, establish connection using connection_connect tool with parameters:\n  - host: IP address of mixer (e.g., "192.168.1.100")\n  - port: OSC port, typically 10023\n\nExample: connection_connect with host="192.168.1.100" and port=10023'
-                        }
-                    ],
-                    isError: true
-                };
+                return createErrorResult(X32Error.notConnected());
             }
 
             try {
-                let faderValue: number;
-                let dbValue: number;
-
-                if (unit === 'db') {
-                    // Input is in dB
-                    if (value < -90 || value > 10) {
-                        return {
-                            content: [
-                                {
-                                    type: 'text',
-                                    text: `Invalid dB value: ${value} dB. Must be between -90 and +10 dB.\n\nValid range:\n  - Minimum: -90 dB (silence/off)\n  - Unity gain: 0 dB (no boost/cut)\n  - Maximum: +10 dB (boost)\n\nExamples:\n  - Silence send: value=-90, unit="db"\n  - Unity send: value=0, unit="db"\n  - Boost send: value=3, unit="db"`
-                                }
-                            ],
-                            isError: true
-                        };
-                    }
-                    dbValue = value;
-                    faderValue = dbToFader(value);
-                } else {
-                    // Input is linear
-                    if (value < 0 || value > 1) {
-                        return {
-                            content: [
-                                {
-                                    type: 'text',
-                                    text: `Invalid linear value: ${value}. Must be between 0.0 and 1.0.\n\nLinear scale explanation:\n  - 0.0 = -∞ dB (no send signal)\n  - 0.75 = 0 dB (unity send level)\n  - 1.0 = +10 dB (maximum send)\n\nExamples:\n  - No send: value=0.0\n  - Unity send: value=0.75\n  - Half send: value=0.5\n\nAlternatively, use unit="db" for decibel values (-90 to +10 dB).`
-                                }
-                            ],
-                            isError: true
-                        };
-                    }
-                    faderValue = value;
-                    dbValue = faderToDb(value);
+                const resolved = resolveVolume(value, unit, [-90, 10]);
+                if ('error' in resolved) {
+                    return createErrorResult(resolved.error);
                 }
 
                 // Channel send to bus: /ch/[channel]/mix/[bus]/level
@@ -286,13 +182,13 @@ function registerBusSetSendTool(server: McpServer, connection: X32Connection): v
                 const busNum = bus.toString().padStart(2, '0');
                 const address = `/ch/${ch}/mix/${busNum}/level`;
 
-                await connection.setParameter(address, faderValue);
+                await connection.setParameter(address, resolved.linear);
 
                 return {
                     content: [
                         {
                             type: 'text',
-                            text: `Set channel ${channel} send to bus ${bus} to ${formatDb(dbValue)} (linear: ${faderValue.toFixed(3)})`
+                            text: `Set channel ${channel} send to bus ${bus} to ${formatDb(resolved.db)} (linear: ${resolved.linear.toFixed(3)})`
                         }
                     ]
                 };
@@ -325,7 +221,6 @@ function registerBusGetStateTool(server: McpServer, connection: X32Connection): 
             inputSchema: {
                 bus: z.number().min(1).max(16).describe('Mix bus number from 1 to 16')
             },
-            outputSchema: busStateOutputSchema,
             annotations: {
                 readOnlyHint: true,
                 destructiveHint: false,
@@ -335,32 +230,24 @@ function registerBusGetStateTool(server: McpServer, connection: X32Connection): 
         },
         async ({ bus }: BusGetStateArgs): Promise<CallToolResult> => {
             if (!connection.connected) {
-                return createErrorResult(
-                    'Not connected to X32/M32 mixer. First, establish connection using connection_connect tool with parameters:\n  - host: IP address of mixer (e.g., "192.168.1.100")\n  - port: OSC port, typically 10023\n\nExample: connection_connect with host="192.168.1.100" and port=10023'
-                );
+                return createErrorResult(X32Error.notConnected());
             }
 
             try {
-                // Get bus parameters
-                const fader = await connection.getBusParameter<number>(bus, 'mix/fader');
-                const on = await connection.getBusParameter<number>(bus, 'mix/on');
-                const pan = await connection.getBusParameter<number>(bus, 'mix/pan');
+                // Get bus parameters in parallel (each is a UDP round trip)
+                const [fader, on, pan] = await Promise.all([
+                    connection.getBusParameter<number>(bus, 'mix/fader'),
+                    connection.getBusParameter<number>(bus, 'mix/on'),
+                    connection.getBusParameter<number>(bus, 'mix/pan')
+                ]);
 
-                // Optional parameters that may not be available on all buses
-                let name = '';
-                let color = -1;
-
-                try {
-                    name = await connection.getBusParameter<string>(bus, 'config/name');
-                } catch {
-                    // Name not available
-                }
-
-                try {
-                    color = await connection.getBusParameter<number>(bus, 'config/color');
-                } catch {
-                    // Color not available
-                }
+                // Optional parameters in parallel
+                const [nameResult, colorResult] = await Promise.allSettled([
+                    connection.getBusParameter<string>(bus, 'config/name'),
+                    connection.getBusParameter<number>(bus, 'config/color')
+                ]);
+                const name = nameResult.status === 'fulfilled' ? nameResult.value : '';
+                const color = colorResult.status === 'fulfilled' ? colorResult.value : -1;
 
                 // Convert values to human-readable formats
                 const rawDbValue = faderToDb(fader);
@@ -378,7 +265,6 @@ function registerBusGetStateTool(server: McpServer, connection: X32Connection): 
                         formatted: formatDb(rawDbValue)
                     },
                     muted,
-                    on,
                     pan
                 };
 

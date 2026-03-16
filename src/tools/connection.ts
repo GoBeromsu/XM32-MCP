@@ -9,19 +9,6 @@ type ConnectionConnectArgs = {
     port?: number;
 };
 
-const connectionInfoOutputSchema = z.object({
-    consoleModel: z.string(),
-    consoleVersion: z.string(),
-    serverName: z.string(),
-    serverVersion: z.string()
-});
-
-const connectionStatusOutputSchema = z.object({
-    state: z.string(),
-    ipAddress: z.string(),
-    serverName: z.string()
-});
-
 /**
  * Connection domain tools
  * Handles connection, disconnection, info, and status operations
@@ -163,7 +150,6 @@ function registerConnectionGetInfoTool(server: McpServer, connection: X32Connect
             description:
                 'Retrieves detailed console information from connected X32 or M32 digital mixing console. Returns model name, firmware version, server details, and other system information useful for identifying mixer capabilities and troubleshooting.',
             inputSchema: {},
-            outputSchema: connectionInfoOutputSchema,
             annotations: {
                 readOnlyHint: true,
                 destructiveHint: false,
@@ -256,7 +242,6 @@ function registerConnectionGetStatusTool(server: McpServer, connection: X32Conne
             description:
                 'Retrieves the current operational status of the connected X32 or M32 digital mixing console. Returns connection state, network information, and server details to monitor mixer availability and network configuration.',
             inputSchema: {},
-            outputSchema: connectionStatusOutputSchema,
             annotations: {
                 readOnlyHint: true,
                 destructiveHint: false,

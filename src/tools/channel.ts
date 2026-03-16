@@ -2,14 +2,12 @@ import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { X32Connection } from '../services/x32-connection.js';
-import { dbToFader, faderToDb, formatDb } from '../utils/db-converter.js';
+import { faderToDb, formatDb, gainDbToLinear, linearToGainDb } from '../utils/db-converter.js';
 import { getColorValue, getColorName, getAvailableColors } from '../utils/color-converter.js';
 import { parsePan, formatPan, panToPercent } from '../utils/pan-converter.js';
 import { X32Error } from '../utils/error-helper.js';
 import { createErrorResult, createStructuredTextResult } from './tool-response.js';
-
-type VolumeUnit = 'linear' | 'db';
-type ChannelEqParameter = 'f' | 'g' | 'q';
+import { volumeUnitSchema, resolveVolume, type VolumeUnit } from './schemas.js';
 type ChannelSetVolumeArgs = {
     channel: number;
     value: number;
@@ -18,10 +16,11 @@ type ChannelSetVolumeArgs = {
 type ChannelSetGainArgs = {
     channel: number;
     gain: number;
+    unit?: VolumeUnit;
 };
 type ChannelMuteArgs = {
     channel: number;
-    muted: boolean;
+    mute: boolean;
 };
 type ChannelSoloArgs = {
     channel: number;
@@ -30,8 +29,9 @@ type ChannelSoloArgs = {
 type ChannelSetEqBandArgs = {
     channel: number;
     band: number;
-    parameter: ChannelEqParameter;
-    value: number;
+    frequency?: number;
+    gain?: number;
+    q?: number;
 };
 type ChannelSetNameArgs = {
     channel: number;
@@ -48,28 +48,6 @@ type ChannelSetPanArgs = {
 type ChannelGetStateArgs = {
     channel: number;
 };
-
-const channelStateOutputSchema = z.object({
-    channel: z.number(),
-    name: z.string(),
-    color: z.object({
-        value: z.number(),
-        name: z.string().nullable()
-    }),
-    fader: z.object({
-        linear: z.number(),
-        db: z.number().nullable(),
-        formatted: z.string()
-    }),
-    muted: z.boolean(),
-    on: z.number(),
-    solo: z.boolean(),
-    pan: z.object({
-        linear: z.number(),
-        formatted: z.string(),
-        percent: z.number()
-    })
-});
 
 /**
  * Channel domain tools
@@ -90,10 +68,7 @@ function registerChannelSetVolumeTool(server: McpServer, connection: X32Connecti
             inputSchema: z.object({
                 channel: z.number().min(1).max(32).describe('Input channel number from 1 to 32'),
                 value: z.number().describe('Volume value (interpretation depends on unit parameter)'),
-                unit: z
-                    .enum(['linear', 'db'])
-                    .default('linear')
-                    .describe('Unit of the value: "linear" (0.0-1.0) or "db" (-90 to +10 dB). Default is "linear".')
+                unit: volumeUnitSchema('-90 to +10 dB')
             }),
             annotations: {
                 readOnlyHint: false,
@@ -116,48 +91,18 @@ function registerChannelSetVolumeTool(server: McpServer, connection: X32Connecti
             }
 
             try {
-                let faderValue: number;
-                let dbValue: number;
-
-                if (unit === 'db') {
-                    // Input is in dB
-                    if (value < -90 || value > 10) {
-                        return {
-                            content: [
-                                {
-                                    type: 'text',
-                                    text: X32Error.invalidDb(value)
-                                }
-                            ],
-                            isError: true
-                        };
-                    }
-                    dbValue = value;
-                    faderValue = dbToFader(value);
-                } else {
-                    // Input is linear
-                    if (value < 0 || value > 1) {
-                        return {
-                            content: [
-                                {
-                                    type: 'text',
-                                    text: X32Error.invalidLinear(value)
-                                }
-                            ],
-                            isError: true
-                        };
-                    }
-                    faderValue = value;
-                    dbValue = faderToDb(value);
+                const resolved = resolveVolume(value, unit, [-90, 10]);
+                if ('error' in resolved) {
+                    return createErrorResult(resolved.error);
                 }
 
-                await connection.setChannelParameter(channel, 'mix/fader', faderValue);
+                await connection.setChannelParameter(channel, 'mix/fader', resolved.linear);
 
                 return {
                     content: [
                         {
                             type: 'text',
-                            text: `Set channel ${channel} to ${formatDb(dbValue)} (linear: ${faderValue.toFixed(3)})`
+                            text: `Set channel ${channel} to ${formatDb(resolved.db)} (linear: ${resolved.linear.toFixed(3)})`
                         }
                     ]
                 };
@@ -186,11 +131,12 @@ function registerChannelSetGainTool(server: McpServer, connection: X32Connection
         {
             title: 'Set Channel Preamp Gain',
             description:
-                'Set the preamp gain for a specific input channel on the X32/M32 mixer. This controls the input gain stage before the channel processing.',
-            inputSchema: {
+                'Set the preamp gain for a specific input channel on the X32/M32 mixer. Supports both linear values (0.0-1.0) and decibel values (-12 to +60 dB). This controls the input gain stage before the channel processing.',
+            inputSchema: z.object({
                 channel: z.number().min(1).max(32).describe('Input channel number from 1 to 32'),
-                gain: z.number().min(0).max(1).describe('Preamp gain level from 0.0 to 1.0 (typically represents -12dB to +60dB range)')
-            },
+                gain: z.number().describe('Gain value (interpretation depends on unit parameter)'),
+                unit: volumeUnitSchema('-12 to +60 dB')
+            }),
             annotations: {
                 readOnlyHint: false,
                 destructiveHint: false,
@@ -198,26 +144,35 @@ function registerChannelSetGainTool(server: McpServer, connection: X32Connection
                 openWorldHint: true
             }
         },
-        async ({ channel, gain }: ChannelSetGainArgs): Promise<CallToolResult> => {
+        async ({ channel, gain, unit = 'linear' }: ChannelSetGainArgs): Promise<CallToolResult> => {
             if (!connection.connected) {
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: X32Error.notConnected()
-                        }
-                    ],
-                    isError: true
-                };
+                return createErrorResult(X32Error.notConnected());
             }
 
             try {
-                await connection.setChannelParameter(channel, 'head/gain', gain);
+                let gainLinear: number;
+                let dbValue: number;
+
+                if (unit === 'db') {
+                    if (gain < -12 || gain > 60) {
+                        return createErrorResult(`Invalid gain dB value: ${gain}. Must be between -12 and +60 dB.`);
+                    }
+                    dbValue = gain;
+                    gainLinear = gainDbToLinear(gain);
+                } else {
+                    if (gain < 0 || gain > 1) {
+                        return createErrorResult(`Invalid linear gain value: ${gain}. Must be between 0.0 and 1.0.`);
+                    }
+                    gainLinear = gain;
+                    dbValue = linearToGainDb(gain);
+                }
+
+                await connection.setChannelParameter(channel, 'head/gain', gainLinear);
                 return {
                     content: [
                         {
                             type: 'text',
-                            text: `Set channel ${channel} preamp gain to ${gain}`
+                            text: `Set channel ${channel} preamp gain to ${dbValue.toFixed(1)} dB (linear: ${gainLinear.toFixed(3)})`
                         }
                     ]
                 };
@@ -248,7 +203,7 @@ function registerChannelMuteTool(server: McpServer, connection: X32Connection): 
             description: 'Mute or unmute a specific input channel on the X32/M32 mixer. This controls the channel on/off state.',
             inputSchema: {
                 channel: z.number().min(1).max(32).describe('Input channel number from 1 to 32'),
-                muted: z.boolean().describe('True to mute the channel, false to unmute')
+                mute: z.boolean().describe('True to mute the channel, false to unmute')
             },
             annotations: {
                 readOnlyHint: false,
@@ -257,7 +212,7 @@ function registerChannelMuteTool(server: McpServer, connection: X32Connection): 
                 openWorldHint: true
             }
         },
-        async ({ channel, muted }: ChannelMuteArgs): Promise<CallToolResult> => {
+        async ({ channel, mute }: ChannelMuteArgs): Promise<CallToolResult> => {
             if (!connection.connected) {
                 return {
                     content: [
@@ -272,13 +227,13 @@ function registerChannelMuteTool(server: McpServer, connection: X32Connection): 
 
             try {
                 // X32 uses inverted logic: 0 = muted, 1 = unmuted
-                const onValue = muted ? 0 : 1;
+                const onValue = mute ? 0 : 1;
                 await connection.setChannelParameter(channel, 'mix/on', onValue);
                 return {
                     content: [
                         {
                             type: 'text',
-                            text: `Channel ${channel} ${muted ? 'muted' : 'unmuted'}`
+                            text: `Channel ${channel} ${mute ? 'muted' : 'unmuted'}`
                         }
                     ]
                 };
@@ -287,7 +242,7 @@ function registerChannelMuteTool(server: McpServer, connection: X32Connection): 
                     content: [
                         {
                             type: 'text',
-                            text: `Failed to ${muted ? 'mute' : 'unmute'} channel: ${error instanceof Error ? error.message : String(error)}`
+                            text: `Failed to ${mute ? 'mute' : 'unmute'} channel: ${error instanceof Error ? error.message : String(error)}`
                         }
                     ],
                     isError: true
@@ -371,7 +326,6 @@ function registerChannelGetStateTool(server: McpServer, connection: X32Connectio
             inputSchema: {
                 channel: z.number().min(1).max(32).describe('Input channel number from 1 to 32')
             },
-            outputSchema: channelStateOutputSchema,
             annotations: {
                 readOnlyHint: true,
                 destructiveHint: false,
@@ -419,7 +373,6 @@ function registerChannelGetStateTool(server: McpServer, connection: X32Connectio
                         formatted: formatDb(rawDbValue)
                     },
                     muted: on === 0,
-                    on,
                     solo: soloValue === 1,
                     pan: {
                         linear: pan,
@@ -455,12 +408,14 @@ function registerChannelSetEqBandTool(server: McpServer, connection: X32Connecti
         'channel_set_eq_band',
         {
             title: 'Set Channel EQ Band',
-            description: 'Configure a specific EQ band on an input channel. The X32/M32 has 4 parametric EQ bands per channel.',
+            description:
+                'Configure a specific EQ band on an input channel. The X32/M32 has 4 parametric EQ bands per channel. You can set one or more parameters (frequency, gain, q) in a single call.',
             inputSchema: z.object({
                 channel: z.number().min(1).max(32).describe('Input channel number from 1 to 32'),
                 band: z.number().min(1).max(4).describe('EQ band number from 1 to 4'),
-                parameter: z.enum(['f', 'g', 'q']).describe('EQ parameter: f=frequency(Hz), g=gain(dB), q=quality/width'),
-                value: z.number().describe('Parameter value (range depends on parameter type)')
+                frequency: z.number().optional().describe('Frequency value (0.0-1.0, maps to 20Hz-20kHz)'),
+                gain: z.number().optional().describe('Gain value (0.0-1.0, maps to -15 to +15 dB)'),
+                q: z.number().optional().describe('Q/bandwidth value (0.0-1.0)')
             }),
             annotations: {
                 readOnlyHint: false,
@@ -469,7 +424,7 @@ function registerChannelSetEqBandTool(server: McpServer, connection: X32Connecti
                 openWorldHint: true
             }
         },
-        async ({ channel, band, parameter, value }: ChannelSetEqBandArgs): Promise<CallToolResult> => {
+        async ({ channel, band, frequency, gain, q }: ChannelSetEqBandArgs): Promise<CallToolResult> => {
             if (!connection.connected) {
                 return {
                     content: [
@@ -483,28 +438,30 @@ function registerChannelSetEqBandTool(server: McpServer, connection: X32Connecti
             }
 
             try {
-                const path = `eq/${band}/${parameter}`;
-                await connection.setChannelParameter(channel, path, value);
+                const params: Array<{ path: string; value: number; name: string }> = [];
+                if (frequency !== undefined) params.push({ path: `eq/${band}/f`, value: frequency, name: 'frequency' });
+                if (gain !== undefined) params.push({ path: `eq/${band}/g`, value: gain, name: 'gain' });
+                if (q !== undefined) params.push({ path: `eq/${band}/q`, value: q, name: 'Q/width' });
 
-                const paramNames: Record<ChannelEqParameter, string> = { f: 'frequency', g: 'gain', q: 'Q/width' };
+                if (params.length === 0) {
+                    return createErrorResult('At least one of frequency, gain, or q must be provided.');
+                }
+
+                await Promise.all(params.map(p =>
+                    connection.setChannelParameter(channel, p.path, p.value)
+                ));
+
+                const summary = params.map(p => `${p.name}=${p.value}`).join(', ');
                 return {
                     content: [
                         {
                             type: 'text',
-                            text: `Set channel ${channel} EQ band ${band} ${paramNames[parameter]} to ${value}`
+                            text: `Set channel ${channel} EQ band ${band}: ${summary}`
                         }
                     ]
                 };
             } catch (error) {
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: `Failed to set EQ band: ${error instanceof Error ? error.message : String(error)}`
-                        }
-                    ],
-                    isError: true
-                };
+                return createErrorResult(`Failed to set EQ band: ${error instanceof Error ? error.message : String(error)}`);
             }
         }
     );

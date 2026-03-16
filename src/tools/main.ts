@@ -2,15 +2,16 @@ import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { X32Connection } from '../services/x32-connection.js';
-import { dbToFader, faderToDb, formatDb } from '../utils/db-converter.js';
-
-type VolumeUnit = 'linear' | 'db';
+import { formatDb } from '../utils/db-converter.js';
+import { X32Error } from '../utils/error-helper.js';
+import { createErrorResult } from './tool-response.js';
+import { volumeUnitSchema, resolveVolume, type VolumeUnit } from './schemas.js';
 type OutputLevelArgs = {
     value: number;
     unit?: VolumeUnit;
 };
 type MainMuteArgs = {
-    muted: boolean;
+    mute: boolean;
 };
 
 /**
@@ -31,10 +32,7 @@ function registerMainSetVolumeTool(server: McpServer, connection: X32Connection)
                 'Set the main stereo output fader level on the X32/M32 mixer. Supports both linear values (0.0-1.0) and decibel values (-90 to +10 dB). Unity gain is 0 dB or 0.75 linear.',
             inputSchema: z.object({
                 value: z.number().describe('Volume value (interpretation depends on unit parameter)'),
-                unit: z
-                    .enum(['linear', 'db'])
-                    .default('linear')
-                    .describe('Unit of the value: "linear" (0.0-1.0) or "db" (-90 to +10 dB). Default is "linear".')
+                unit: volumeUnitSchema('-90 to +10 dB')
             }),
             annotations: {
                 readOnlyHint: false,
@@ -45,60 +43,22 @@ function registerMainSetVolumeTool(server: McpServer, connection: X32Connection)
         },
         async ({ value, unit = 'linear' }: OutputLevelArgs): Promise<CallToolResult> => {
             if (!connection.connected) {
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: 'Not connected to X32/M32 mixer. Use connection_connect first.'
-                        }
-                    ],
-                    isError: true
-                };
+                return createErrorResult(X32Error.notConnected());
             }
 
             try {
-                let faderValue: number;
-                let dbValue: number;
-
-                if (unit === 'db') {
-                    // Input is in dB
-                    if (value < -90 || value > 10) {
-                        return {
-                            content: [
-                                {
-                                    type: 'text',
-                                    text: `Invalid dB value: ${value}. Must be between -90 and +10 dB.\n\nWARNING: Main output controls the primary mixer output.\n\nValid dB range:\n- -90 dB = minimum/silence\n- 0 dB = unity gain (0.75 linear)\n- +10 dB = maximum output\n\nSafety considerations:\n1. Start with low values when testing\n2. Sudden volume changes can damage speakers or hearing\n3. Consider using monitor outputs for testing instead\n4. Use channel/bus controls for most mixing tasks`
-                                }
-                            ],
-                            isError: true
-                        };
-                    }
-                    dbValue = value;
-                    faderValue = dbToFader(value);
-                } else {
-                    // Input is linear
-                    if (value < 0 || value > 1) {
-                        return {
-                            content: [
-                                {
-                                    type: 'text',
-                                    text: `Invalid linear value: ${value}. Must be between 0.0 and 1.0.\n\nWARNING: Main output controls the primary mixer output.\n\nValid linear range:\n- 0.0 = silence\n- 0.75 = unity gain (0 dB)\n- 1.0 = maximum (+10 dB)\n\nSafety considerations:\n1. Start with low values (< 0.5) when testing\n2. Sudden volume changes can damage speakers or hearing\n3. Consider using monitor outputs for testing instead\n4. Use channel/bus controls for most mixing tasks`
-                                }
-                            ],
-                            isError: true
-                        };
-                    }
-                    faderValue = value;
-                    dbValue = faderToDb(value);
+                const resolved = resolveVolume(value, unit, [-90, 10]);
+                if ('error' in resolved) {
+                    return createErrorResult(resolved.error);
                 }
 
-                await connection.setParameter('/main/st/mix/fader', faderValue);
+                await connection.setParameter('/main/st/mix/fader', resolved.linear);
 
                 return {
                     content: [
                         {
                             type: 'text',
-                            text: `Set main stereo output to ${formatDb(dbValue)} (linear: ${faderValue.toFixed(3)})`
+                            text: `Set main stereo output to ${formatDb(resolved.db)} (linear: ${resolved.linear.toFixed(3)})`
                         }
                     ]
                 };
@@ -129,7 +89,7 @@ function registerMainMuteTool(server: McpServer, connection: X32Connection): voi
             title: 'Main Stereo Output Mute Control',
             description: 'Mute or unmute the main stereo output on the X32/M32 mixer. This controls the master output on/off state.',
             inputSchema: z.object({
-                muted: z.boolean().describe('True to mute the main output, false to unmute')
+                mute: z.boolean().describe('True to mute the main output, false to unmute')
             }),
             annotations: {
                 readOnlyHint: false,
@@ -138,29 +98,21 @@ function registerMainMuteTool(server: McpServer, connection: X32Connection): voi
                 openWorldHint: true
             }
         },
-        async ({ muted }: MainMuteArgs): Promise<CallToolResult> => {
+        async ({ mute }: MainMuteArgs): Promise<CallToolResult> => {
             if (!connection.connected) {
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: 'Not connected to X32/M32 mixer. Use connection_connect first.'
-                        }
-                    ],
-                    isError: true
-                };
+                return createErrorResult(X32Error.notConnected());
             }
 
             try {
                 // X32 uses inverted logic: 0 = muted, 1 = unmuted
-                const onValue = muted ? 0 : 1;
+                const onValue = mute ? 0 : 1;
                 await connection.setParameter('/main/st/mix/on', onValue);
 
                 return {
                     content: [
                         {
                             type: 'text',
-                            text: `Main stereo output ${muted ? 'muted' : 'unmuted'}`
+                            text: `Main stereo output ${mute ? 'muted' : 'unmuted'}`
                         }
                     ]
                 };
@@ -170,7 +122,7 @@ function registerMainMuteTool(server: McpServer, connection: X32Connection): voi
                     content: [
                         {
                             type: 'text',
-                            text: `Failed to ${muted ? 'mute' : 'unmute'} main output: ${errorMsg}\n\nCRITICAL: Muting main output affects the primary house/PA speakers.\n\nMain Output Control:\n- Muting stops all sound to main speakers\n- Used for emergency silence or show transitions\n- Does NOT affect monitor outputs\n- X32 uses inverted logic: 0=muted, 1=unmuted\n\nWarning when unmuting:\n- Check main volume level first (use main_set_volume)\n- Ensure volume is at safe level before unmuting\n- Sudden loud unmute can damage speakers or hearing\n\nTroubleshooting:\n1. Verify mixer connection is active\n2. Check OSC communication is working\n3. Try setting main volume to confirm control path works`
+                            text: `Failed to ${mute ? 'mute' : 'unmute'} main output: ${errorMsg}\n\nCRITICAL: Muting main output affects the primary house/PA speakers.\n\nMain Output Control:\n- Muting stops all sound to main speakers\n- Used for emergency silence or show transitions\n- Does NOT affect monitor outputs\n- X32 uses inverted logic: 0=muted, 1=unmuted\n\nWarning when unmuting:\n- Check main volume level first (use main_set_volume)\n- Ensure volume is at safe level before unmuting\n- Sudden loud unmute can damage speakers or hearing\n\nTroubleshooting:\n1. Verify mixer connection is active\n2. Check OSC communication is working\n3. Try setting main volume to confirm control path works`
                         }
                     ],
                     isError: true
@@ -193,10 +145,7 @@ function registerMonitorSetLevelTool(server: McpServer, connection: X32Connectio
                 'Set the monitor output fader level on the X32/M32 mixer. Supports both linear values (0.0-1.0) and decibel values (-90 to +10 dB). Unity gain is 0 dB or 0.75 linear.',
             inputSchema: {
                 value: z.number().describe('Volume value (interpretation depends on unit parameter)'),
-                unit: z
-                    .enum(['linear', 'db'])
-                    .default('linear')
-                    .describe('Unit of the value: "linear" (0.0-1.0) or "db" (-90 to +10 dB). Default is "linear".')
+                unit: volumeUnitSchema('-90 to +10 dB')
             },
             annotations: {
                 readOnlyHint: false,
@@ -207,60 +156,22 @@ function registerMonitorSetLevelTool(server: McpServer, connection: X32Connectio
         },
         async ({ value, unit = 'linear' }: OutputLevelArgs): Promise<CallToolResult> => {
             if (!connection.connected) {
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: 'Not connected to X32/M32 mixer. Use connection_connect first.'
-                        }
-                    ],
-                    isError: true
-                };
+                return createErrorResult(X32Error.notConnected());
             }
 
             try {
-                let faderValue: number;
-                let dbValue: number;
-
-                if (unit === 'db') {
-                    // Input is in dB
-                    if (value < -90 || value > 10) {
-                        return {
-                            content: [
-                                {
-                                    type: 'text',
-                                    text: `Invalid dB value: ${value}. Must be between -90 and +10 dB.\n\nMonitor Output Control:\n- Monitor output (/main/m) is for engineer monitoring only\n- Does NOT affect main house/PA speakers\n- Safe for testing without affecting audience\n\nValid dB range:\n- -90 dB = minimum/silence\n- 0 dB = unity gain (0.75 linear)\n- +10 dB = maximum output\n\nRecommendation:\n- Start with -20 dB for safe headphone monitoring\n- Increase gradually to comfortable listening level`
-                                }
-                            ],
-                            isError: true
-                        };
-                    }
-                    dbValue = value;
-                    faderValue = dbToFader(value);
-                } else {
-                    // Input is linear
-                    if (value < 0 || value > 1) {
-                        return {
-                            content: [
-                                {
-                                    type: 'text',
-                                    text: `Invalid linear value: ${value}. Must be between 0.0 and 1.0.\n\nMonitor Output Control:\n- Monitor output (/main/m) is for engineer monitoring only\n- Does NOT affect main house/PA speakers\n- Safe for testing without affecting audience\n\nValid linear range:\n- 0.0 = silence\n- 0.75 = unity gain (0 dB)\n- 1.0 = maximum (+10 dB)\n\nRecommendation:\n- Start with 0.3-0.4 for safe headphone monitoring\n- Increase gradually to comfortable listening level`
-                                }
-                            ],
-                            isError: true
-                        };
-                    }
-                    faderValue = value;
-                    dbValue = faderToDb(value);
+                const resolved = resolveVolume(value, unit, [-90, 10]);
+                if ('error' in resolved) {
+                    return createErrorResult(resolved.error);
                 }
 
-                await connection.setParameter('/main/m/mix/fader', faderValue);
+                await connection.setParameter('/main/m/mix/fader', resolved.linear);
 
                 return {
                     content: [
                         {
                             type: 'text',
-                            text: `Set monitor output to ${formatDb(dbValue)} (linear: ${faderValue.toFixed(3)})`
+                            text: `Set monitor output to ${formatDb(resolved.db)} (linear: ${resolved.linear.toFixed(3)})`
                         }
                     ]
                 };
