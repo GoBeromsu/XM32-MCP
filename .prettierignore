@@ -11,3 +11,8 @@ pnpm-lock.yaml
 
 # Ignore generated files
 src/spec.types.ts
+
+# Ignore local Codex helper files
+.agents
+AGENTS.md
+X32_macOS

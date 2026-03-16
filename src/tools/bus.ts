@@ -4,6 +4,27 @@ import { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { X32Connection } from '../services/x32-connection.js';
 import { dbToFader, faderToDb, formatDb } from '../utils/db-converter.js';
 
+type RegisterTool = (name: string, config: unknown, handler: unknown) => void;
+type VolumeUnit = 'linear' | 'db';
+type BusSetVolumeArgs = {
+    bus: number;
+    value: number;
+    unit?: VolumeUnit;
+};
+type BusMuteArgs = {
+    bus: number;
+    muted: boolean;
+};
+type BusSetSendArgs = {
+    channel: number;
+    bus: number;
+    value: number;
+    unit?: VolumeUnit;
+};
+type BusGetStateArgs = {
+    bus: number;
+};
+
 /**
  * Bus domain tools
  * Semantic, task-based tools for mix bus control
@@ -14,20 +35,20 @@ import { dbToFader, faderToDb, formatDb } from '../utils/db-converter.js';
  * Set bus fader level
  */
 function registerBusSetVolumeTool(server: McpServer, connection: X32Connection): void {
-    server.registerTool(
+    (server.registerTool as RegisterTool)(
         'bus_set_volume',
         {
             title: 'Set Bus Fader Volume',
             description:
                 'Set the fader level (volume) for a specific mix bus on the X32/M32 mixer. Supports both linear values (0.0-1.0) and decibel values (-90 to +10 dB). Unity gain is 0 dB or 0.75 linear.',
-            inputSchema: {
+            inputSchema: z.object({
                 bus: z.number().min(1).max(16).describe('Mix bus number from 1 to 16'),
                 value: z.number().describe('Volume value (interpretation depends on unit parameter)'),
                 unit: z
                     .enum(['linear', 'db'])
                     .default('linear')
                     .describe('Unit of the value: "linear" (0.0-1.0) or "db" (-90 to +10 dB). Default is "linear".')
-            },
+            }),
             annotations: {
                 readOnlyHint: false,
                 destructiveHint: false,
@@ -35,7 +56,7 @@ function registerBusSetVolumeTool(server: McpServer, connection: X32Connection):
                 openWorldHint: true
             }
         },
-        async ({ bus, value, unit = 'linear' }): Promise<CallToolResult> => {
+        async ({ bus, value, unit = 'linear' }: BusSetVolumeArgs): Promise<CallToolResult> => {
             if (!connection.connected) {
                 return {
                     content: [
@@ -114,7 +135,7 @@ function registerBusSetVolumeTool(server: McpServer, connection: X32Connection):
  * Mute or unmute a bus
  */
 function registerBusMuteTool(server: McpServer, connection: X32Connection): void {
-    server.registerTool(
+    (server.registerTool as RegisterTool)(
         'bus_mute',
         {
             title: 'Bus Mute Control',
@@ -130,7 +151,7 @@ function registerBusMuteTool(server: McpServer, connection: X32Connection): void
                 openWorldHint: true
             }
         },
-        async ({ bus, muted }): Promise<CallToolResult> => {
+        async ({ bus, muted }: BusMuteArgs): Promise<CallToolResult> => {
             if (!connection.connected) {
                 return {
                     content: [
@@ -175,7 +196,7 @@ function registerBusMuteTool(server: McpServer, connection: X32Connection): void
  * Set channel send level to a bus
  */
 function registerBusSetSendTool(server: McpServer, connection: X32Connection): void {
-    server.registerTool(
+    (server.registerTool as RegisterTool)(
         'bus_set_send',
         {
             title: 'Set Channel Send to Bus',
@@ -197,7 +218,7 @@ function registerBusSetSendTool(server: McpServer, connection: X32Connection): v
                 openWorldHint: true
             }
         },
-        async ({ channel, bus, value, unit = 'linear' }): Promise<CallToolResult> => {
+        async ({ channel, bus, value, unit = 'linear' }: BusSetSendArgs): Promise<CallToolResult> => {
             if (!connection.connected) {
                 return {
                     content: [
@@ -281,7 +302,7 @@ function registerBusSetSendTool(server: McpServer, connection: X32Connection): v
  * Get complete bus state
  */
 function registerBusGetStateTool(server: McpServer, connection: X32Connection): void {
-    server.registerTool(
+    (server.registerTool as RegisterTool)(
         'bus_get_state',
         {
             title: 'Get Bus State',
@@ -297,7 +318,7 @@ function registerBusGetStateTool(server: McpServer, connection: X32Connection): 
                 openWorldHint: true
             }
         },
-        async ({ bus }): Promise<CallToolResult> => {
+        async ({ bus }: BusGetStateArgs): Promise<CallToolResult> => {
             if (!connection.connected) {
                 return {
                     content: [

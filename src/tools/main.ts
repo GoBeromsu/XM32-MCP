@@ -4,6 +4,16 @@ import { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { X32Connection } from '../services/x32-connection.js';
 import { dbToFader, faderToDb, formatDb } from '../utils/db-converter.js';
 
+type RegisterTool = (name: string, config: unknown, handler: unknown) => void;
+type VolumeUnit = 'linear' | 'db';
+type OutputLevelArgs = {
+    value: number;
+    unit?: VolumeUnit;
+};
+type MainMuteArgs = {
+    muted: boolean;
+};
+
 /**
  * Main output domain tools
  * Semantic, task-based tools for main and monitor output control
@@ -14,19 +24,19 @@ import { dbToFader, faderToDb, formatDb } from '../utils/db-converter.js';
  * Set main stereo output volume
  */
 function registerMainSetVolumeTool(server: McpServer, connection: X32Connection): void {
-    server.registerTool(
+    (server.registerTool as RegisterTool)(
         'main_set_volume',
         {
             title: 'Set Main Stereo Output Volume',
             description:
                 'Set the main stereo output fader level on the X32/M32 mixer. Supports both linear values (0.0-1.0) and decibel values (-90 to +10 dB). Unity gain is 0 dB or 0.75 linear.',
-            inputSchema: {
+            inputSchema: z.object({
                 value: z.number().describe('Volume value (interpretation depends on unit parameter)'),
                 unit: z
                     .enum(['linear', 'db'])
                     .default('linear')
                     .describe('Unit of the value: "linear" (0.0-1.0) or "db" (-90 to +10 dB). Default is "linear".')
-            },
+            }),
             annotations: {
                 readOnlyHint: false,
                 destructiveHint: false,
@@ -34,7 +44,7 @@ function registerMainSetVolumeTool(server: McpServer, connection: X32Connection)
                 openWorldHint: true
             }
         },
-        async ({ value, unit = 'linear' }): Promise<CallToolResult> => {
+        async ({ value, unit = 'linear' }: OutputLevelArgs): Promise<CallToolResult> => {
             if (!connection.connected) {
                 return {
                     content: [
@@ -114,14 +124,14 @@ function registerMainSetVolumeTool(server: McpServer, connection: X32Connection)
  * Mute or unmute main stereo output
  */
 function registerMainMuteTool(server: McpServer, connection: X32Connection): void {
-    server.registerTool(
+    (server.registerTool as RegisterTool)(
         'main_mute',
         {
             title: 'Main Stereo Output Mute Control',
             description: 'Mute or unmute the main stereo output on the X32/M32 mixer. This controls the master output on/off state.',
-            inputSchema: {
+            inputSchema: z.object({
                 muted: z.boolean().describe('True to mute the main output, false to unmute')
-            },
+            }),
             annotations: {
                 readOnlyHint: false,
                 destructiveHint: true, // Muting main output is potentially destructive
@@ -129,7 +139,7 @@ function registerMainMuteTool(server: McpServer, connection: X32Connection): voi
                 openWorldHint: true
             }
         },
-        async ({ muted }): Promise<CallToolResult> => {
+        async ({ muted }: MainMuteArgs): Promise<CallToolResult> => {
             if (!connection.connected) {
                 return {
                     content: [
@@ -176,7 +186,7 @@ function registerMainMuteTool(server: McpServer, connection: X32Connection): voi
  * Set monitor output level
  */
 function registerMonitorSetLevelTool(server: McpServer, connection: X32Connection): void {
-    server.registerTool(
+    (server.registerTool as RegisterTool)(
         'monitor_set_level',
         {
             title: 'Set Monitor Output Level',
@@ -196,7 +206,7 @@ function registerMonitorSetLevelTool(server: McpServer, connection: X32Connectio
                 openWorldHint: true
             }
         },
-        async ({ value, unit = 'linear' }): Promise<CallToolResult> => {
+        async ({ value, unit = 'linear' }: OutputLevelArgs): Promise<CallToolResult> => {
             if (!connection.connected) {
                 return {
                     content: [

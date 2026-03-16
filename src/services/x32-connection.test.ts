@@ -1,3 +1,4 @@
+import { jest } from '@jest/globals';
 import { MockX32Connection } from './__mocks__/mock-x32-connection.js';
 import { dbToFader } from '../utils/db-converter.js';
 

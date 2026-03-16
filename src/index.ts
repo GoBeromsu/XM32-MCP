@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createRequire } from 'node:module';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { X32Connection } from './services/x32-connection.js';
@@ -10,6 +11,9 @@ import {
     registerMainTools,
     registerParameterTools
 } from './tools/index.js';
+
+const require = createRequire(import.meta.url);
+const { version } = require('../package.json') as { version: string };
 
 /**
  * X32 MCP Server
@@ -23,7 +27,7 @@ async function main() {
     const server = new McpServer(
         {
             name: 'x-m32-mcp-server',
-            version: '2.1.0'
+            version
         },
         {
             capabilities: {

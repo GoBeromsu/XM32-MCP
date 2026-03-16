@@ -7,6 +7,45 @@ import { getColorValue, getColorName, getAvailableColors } from '../utils/color-
 import { parsePan, formatPan, panToPercent } from '../utils/pan-converter.js';
 import { X32Error } from '../utils/error-helper.js';
 
+type RegisterTool = (name: string, config: unknown, handler: unknown) => void;
+type VolumeUnit = 'linear' | 'db';
+type ChannelEqParameter = 'f' | 'g' | 'q';
+type ChannelSetVolumeArgs = {
+    channel: number;
+    value: number;
+    unit?: VolumeUnit;
+};
+type ChannelSetGainArgs = {
+    channel: number;
+    gain: number;
+};
+type ChannelMuteArgs = {
+    channel: number;
+    muted: boolean;
+};
+type ChannelSoloArgs = {
+    channel: number;
+    solo: boolean;
+};
+type ChannelSetEqBandArgs = {
+    channel: number;
+    band: number;
+    parameter: ChannelEqParameter;
+    value: number;
+};
+type ChannelSetNameArgs = {
+    channel: number;
+    name: string;
+};
+type ChannelSetColorArgs = {
+    channel: number;
+    color: string;
+};
+type ChannelSetPanArgs = {
+    channel: number;
+    pan: string | number;
+};
+
 /**
  * Channel domain tools
  * Semantic, task-based tools for channel control
@@ -17,20 +56,20 @@ import { X32Error } from '../utils/error-helper.js';
  * Set channel fader level
  */
 function registerChannelSetVolumeTool(server: McpServer, connection: X32Connection): void {
-    server.registerTool(
+    (server.registerTool as RegisterTool)(
         'channel_set_volume',
         {
             title: 'Set Channel Fader Volume',
             description:
                 'Set the fader level (volume) for a specific input channel on the X32/M32 mixer. Supports both linear values (0.0-1.0) and decibel values (-90 to +10 dB). Unity gain is 0 dB or 0.75 linear.',
-            inputSchema: {
+            inputSchema: z.object({
                 channel: z.number().min(1).max(32).describe('Input channel number from 1 to 32'),
                 value: z.number().describe('Volume value (interpretation depends on unit parameter)'),
                 unit: z
                     .enum(['linear', 'db'])
                     .default('linear')
                     .describe('Unit of the value: "linear" (0.0-1.0) or "db" (-90 to +10 dB). Default is "linear".')
-            },
+            }),
             annotations: {
                 readOnlyHint: false,
                 destructiveHint: false,
@@ -38,7 +77,7 @@ function registerChannelSetVolumeTool(server: McpServer, connection: X32Connecti
                 openWorldHint: true
             }
         },
-        async ({ channel, value, unit = 'linear' }): Promise<CallToolResult> => {
+        async ({ channel, value, unit = 'linear' }: ChannelSetVolumeArgs): Promise<CallToolResult> => {
             if (!connection.connected) {
                 return {
                     content: [
@@ -117,7 +156,7 @@ function registerChannelSetVolumeTool(server: McpServer, connection: X32Connecti
  * Set channel preamp gain
  */
 function registerChannelSetGainTool(server: McpServer, connection: X32Connection): void {
-    server.registerTool(
+    (server.registerTool as RegisterTool)(
         'channel_set_gain',
         {
             title: 'Set Channel Preamp Gain',
@@ -134,7 +173,7 @@ function registerChannelSetGainTool(server: McpServer, connection: X32Connection
                 openWorldHint: true
             }
         },
-        async ({ channel, gain }): Promise<CallToolResult> => {
+        async ({ channel, gain }: ChannelSetGainArgs): Promise<CallToolResult> => {
             if (!connection.connected) {
                 return {
                     content: [
@@ -177,7 +216,7 @@ function registerChannelSetGainTool(server: McpServer, connection: X32Connection
  * Mute or unmute a channel
  */
 function registerChannelMuteTool(server: McpServer, connection: X32Connection): void {
-    server.registerTool(
+    (server.registerTool as RegisterTool)(
         'channel_mute',
         {
             title: 'Channel Mute Control',
@@ -193,7 +232,7 @@ function registerChannelMuteTool(server: McpServer, connection: X32Connection): 
                 openWorldHint: true
             }
         },
-        async ({ channel, muted }): Promise<CallToolResult> => {
+        async ({ channel, muted }: ChannelMuteArgs): Promise<CallToolResult> => {
             if (!connection.connected) {
                 return {
                     content: [
@@ -238,7 +277,7 @@ function registerChannelMuteTool(server: McpServer, connection: X32Connection): 
  * Solo or unsolo a channel
  */
 function registerChannelSoloTool(server: McpServer, connection: X32Connection): void {
-    server.registerTool(
+    (server.registerTool as RegisterTool)(
         'channel_solo',
         {
             title: 'Channel Solo Control',
@@ -255,7 +294,7 @@ function registerChannelSoloTool(server: McpServer, connection: X32Connection): 
                 openWorldHint: true
             }
         },
-        async ({ channel, solo }): Promise<CallToolResult> => {
+        async ({ channel, solo }: ChannelSoloArgs): Promise<CallToolResult> => {
             if (!connection.connected) {
                 return {
                     content: [
@@ -299,17 +338,17 @@ function registerChannelSoloTool(server: McpServer, connection: X32Connection): 
  * Set specific EQ band parameters
  */
 function registerChannelSetEqBandTool(server: McpServer, connection: X32Connection): void {
-    server.registerTool(
+    (server.registerTool as RegisterTool)(
         'channel_set_eq_band',
         {
             title: 'Set Channel EQ Band',
             description: 'Configure a specific EQ band on an input channel. The X32/M32 has 4 parametric EQ bands per channel.',
-            inputSchema: {
+            inputSchema: z.object({
                 channel: z.number().min(1).max(32).describe('Input channel number from 1 to 32'),
                 band: z.number().min(1).max(4).describe('EQ band number from 1 to 4'),
                 parameter: z.enum(['f', 'g', 'q']).describe('EQ parameter: f=frequency(Hz), g=gain(dB), q=quality/width'),
                 value: z.number().describe('Parameter value (range depends on parameter type)')
-            },
+            }),
             annotations: {
                 readOnlyHint: false,
                 destructiveHint: false,
@@ -317,7 +356,7 @@ function registerChannelSetEqBandTool(server: McpServer, connection: X32Connecti
                 openWorldHint: true
             }
         },
-        async ({ channel, band, parameter, value }): Promise<CallToolResult> => {
+        async ({ channel, band, parameter, value }: ChannelSetEqBandArgs): Promise<CallToolResult> => {
             if (!connection.connected) {
                 return {
                     content: [
@@ -334,7 +373,7 @@ function registerChannelSetEqBandTool(server: McpServer, connection: X32Connecti
                 const path = `eq/${band}/${parameter}`;
                 await connection.setChannelParameter(channel, path, value);
 
-                const paramNames = { f: 'frequency', g: 'gain', q: 'Q/width' };
+                const paramNames: Record<ChannelEqParameter, string> = { f: 'frequency', g: 'gain', q: 'Q/width' };
                 return {
                     content: [
                         {
@@ -363,15 +402,15 @@ function registerChannelSetEqBandTool(server: McpServer, connection: X32Connecti
  * Set channel name/label
  */
 function registerChannelSetNameTool(server: McpServer, connection: X32Connection): void {
-    server.registerTool(
+    (server.registerTool as RegisterTool)(
         'channel_set_name',
         {
             title: 'Set Channel Name',
             description: 'Set the name/label for a specific input channel. Maximum 12 characters for X32/M32.',
-            inputSchema: {
+            inputSchema: z.object({
                 channel: z.number().min(1).max(32).describe('Input channel number from 1 to 32'),
                 name: z.string().max(12).describe('Channel name (max 12 characters)')
-            },
+            }),
             annotations: {
                 readOnlyHint: false,
                 destructiveHint: false,
@@ -379,7 +418,7 @@ function registerChannelSetNameTool(server: McpServer, connection: X32Connection
                 openWorldHint: true
             }
         },
-        async ({ channel, name }): Promise<CallToolResult> => {
+        async ({ channel, name }: ChannelSetNameArgs): Promise<CallToolResult> => {
             if (!connection.connected) {
                 return {
                     content: [
@@ -425,7 +464,7 @@ function registerChannelSetNameTool(server: McpServer, connection: X32Connection
  * Set channel strip color
  */
 function registerChannelSetColorTool(server: McpServer, connection: X32Connection): void {
-    server.registerTool(
+    (server.registerTool as RegisterTool)(
         'channel_set_color',
         {
             title: 'Set Channel Color',
@@ -445,7 +484,7 @@ function registerChannelSetColorTool(server: McpServer, connection: X32Connectio
                 openWorldHint: true
             }
         },
-        async ({ channel, color }): Promise<CallToolResult> => {
+        async ({ channel, color }: ChannelSetColorArgs): Promise<CallToolResult> => {
             if (!connection.connected) {
                 return {
                     content: [
@@ -504,18 +543,18 @@ function registerChannelSetColorTool(server: McpServer, connection: X32Connectio
  * Set channel stereo positioning
  */
 function registerChannelSetPanTool(server: McpServer, connection: X32Connection): void {
-    server.registerTool(
+    (server.registerTool as RegisterTool)(
         'channel_set_pan',
         {
             title: 'Set Channel Pan',
             description:
                 'Set the stereo pan position for a channel. Accepts percentage (-100 to +100), LR notation (L50, C, R100), or linear values (0.0-1.0).',
-            inputSchema: {
+            inputSchema: z.object({
                 channel: z.number().min(1).max(32).describe('Input channel number from 1 to 32'),
                 pan: z
                     .union([z.string(), z.number()])
                     .describe('Pan position: percentage (-100 to +100), LR notation (L50/C/R100), or linear (0.0-1.0)')
-            },
+            }),
             annotations: {
                 readOnlyHint: false,
                 destructiveHint: false,
@@ -523,7 +562,7 @@ function registerChannelSetPanTool(server: McpServer, connection: X32Connection)
                 openWorldHint: true
             }
         },
-        async ({ channel, pan }): Promise<CallToolResult> => {
+        async ({ channel, pan }: ChannelSetPanArgs): Promise<CallToolResult> => {
             if (!connection.connected) {
                 return {
                     content: [

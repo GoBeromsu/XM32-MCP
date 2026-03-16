@@ -3,6 +3,15 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { X32Connection } from '../services/x32-connection.js';
 
+type RegisterTool = (name: string, config: unknown, handler: unknown) => void;
+type GetParameterArgs = {
+    address: string;
+};
+type SetParameterArgs = {
+    address: string;
+    value: string | number;
+};
+
 /**
  * Generic parameter tools
  * Low-level fallback tools for advanced users
@@ -13,7 +22,7 @@ import { X32Connection } from '../services/x32-connection.js';
  * Gets parameter value by OSC address pattern
  */
 function registerGetParameterTool(server: McpServer, connection: X32Connection): void {
-    server.registerTool(
+    (server.registerTool as RegisterTool)(
         'get_parameter',
         {
             title: 'Get Parameter (Low-Level)',
@@ -33,7 +42,7 @@ function registerGetParameterTool(server: McpServer, connection: X32Connection):
                 openWorldHint: true
             }
         },
-        async ({ address }): Promise<CallToolResult> => {
+        async ({ address }: GetParameterArgs): Promise<CallToolResult> => {
             if (!connection.connected) {
                 return {
                     content: [
@@ -77,7 +86,7 @@ function registerGetParameterTool(server: McpServer, connection: X32Connection):
  * Sets parameter value by OSC address pattern
  */
 function registerSetParameterTool(server: McpServer, connection: X32Connection): void {
-    server.registerTool(
+    (server.registerTool as RegisterTool)(
         'set_parameter',
         {
             title: 'Set Parameter (Low-Level)',
@@ -100,7 +109,7 @@ function registerSetParameterTool(server: McpServer, connection: X32Connection):
                 openWorldHint: true
             }
         },
-        async ({ address, value }): Promise<CallToolResult> => {
+        async ({ address, value }: SetParameterArgs): Promise<CallToolResult> => {
             if (!connection.connected) {
                 return {
                     content: [

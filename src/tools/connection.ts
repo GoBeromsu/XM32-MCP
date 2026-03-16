@@ -3,6 +3,12 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { X32Connection } from '../services/x32-connection.js';
 
+type RegisterTool = (name: string, config: unknown, handler: unknown) => void;
+type ConnectionConnectArgs = {
+    host: string;
+    port?: number;
+};
+
 /**
  * Connection domain tools
  * Handles connection, disconnection, info, and status operations
@@ -13,16 +19,16 @@ import { X32Connection } from '../services/x32-connection.js';
  * Establishes connection to X32/M32 mixer
  */
 function registerConnectionConnectTool(server: McpServer, connection: X32Connection): void {
-    server.registerTool(
+    (server.registerTool as RegisterTool)(
         'connection_connect',
         {
             title: 'Connect to X32/M32 Mixer',
             description:
                 'Establishes a connection to an X32 or M32 digital mixing console using the OSC (Open Sound Control) protocol. Use this tool when you need to control mixer functions remotely. The mixer must be powered on and connected to the same network.',
-            inputSchema: {
+            inputSchema: z.object({
                 host: z.string().describe('IP address of the X32/M32 mixer on the network (e.g., "192.168.1.100")'),
                 port: z.number().default(10023).describe('OSC port number for communication with the mixer (standard port is 10023)')
-            },
+            }),
             annotations: {
                 readOnlyHint: false,
                 destructiveHint: false,
@@ -30,7 +36,7 @@ function registerConnectionConnectTool(server: McpServer, connection: X32Connect
                 openWorldHint: true
             }
         },
-        async ({ host, port }): Promise<CallToolResult> => {
+        async ({ host, port = 10023 }: ConnectionConnectArgs): Promise<CallToolResult> => {
             if (connection.connected) {
                 return {
                     content: [
@@ -99,7 +105,7 @@ function registerConnectionConnectTool(server: McpServer, connection: X32Connect
  * Disconnects from X32/M32 mixer
  */
 function registerConnectionDisconnectTool(server: McpServer, connection: X32Connection): void {
-    server.registerTool(
+    (server.registerTool as RegisterTool)(
         'connection_disconnect',
         {
             title: 'Disconnect from X32/M32 Mixer',
@@ -179,7 +185,7 @@ function registerConnectionDisconnectTool(server: McpServer, connection: X32Conn
  * Retrieves console information from X32/M32 mixer
  */
 function registerConnectionGetInfoTool(server: McpServer, connection: X32Connection): void {
-    server.registerTool(
+    (server.registerTool as RegisterTool)(
         'connection_get_info',
         {
             title: 'Get X32/M32 Console Information',
@@ -294,7 +300,7 @@ function registerConnectionGetInfoTool(server: McpServer, connection: X32Connect
  * Retrieves current status from X32/M32 mixer
  */
 function registerConnectionGetStatusTool(server: McpServer, connection: X32Connection): void {
-    server.registerTool(
+    (server.registerTool as RegisterTool)(
         'connection_get_status',
         {
             title: 'Get X32/M32 Connection Status',

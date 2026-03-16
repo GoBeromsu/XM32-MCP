@@ -3,6 +3,20 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { X32Connection } from '../services/x32-connection.js';
 
+type RegisterTool = (name: string, config: unknown, handler: unknown) => void;
+type FxSetParameterArgs = {
+    fx: number;
+    parameter: number;
+    value: number;
+};
+type FxGetStateArgs = {
+    fx: number;
+};
+type FxBypassArgs = {
+    fx: number;
+    bypass: boolean;
+};
+
 /**
  * FX (effects) domain tools
  * Semantic, task-based tools for effects rack control
@@ -13,17 +27,17 @@ import { X32Connection } from '../services/x32-connection.js';
  * Set effects parameter value
  */
 function registerFxSetParameterTool(server: McpServer, connection: X32Connection): void {
-    server.registerTool(
+    (server.registerTool as RegisterTool)(
         'fx_set_parameter',
         {
             title: 'Set FX Parameter',
             description:
                 'Set a parameter value for a specific effects rack on the X32/M32 mixer. The X32/M32 has 8 effects racks (1-8), each with multiple parameters (01-64). Parameter numbers and ranges vary by effect type.',
-            inputSchema: {
+            inputSchema: z.object({
                 fx: z.number().min(1).max(8).describe('Effects rack number from 1 to 8'),
                 parameter: z.number().min(1).max(64).describe('Parameter number from 1 to 64 (valid range depends on effect type)'),
                 value: z.number().min(0).max(1).describe('Parameter value from 0.0 to 1.0 (interpretation depends on parameter type)')
-            },
+            }),
             annotations: {
                 readOnlyHint: false,
                 destructiveHint: false,
@@ -31,7 +45,7 @@ function registerFxSetParameterTool(server: McpServer, connection: X32Connection
                 openWorldHint: true
             }
         },
-        async ({ fx, parameter, value }): Promise<CallToolResult> => {
+        async ({ fx, parameter, value }: FxSetParameterArgs): Promise<CallToolResult> => {
             if (!connection.connected) {
                 return {
                     content: [
@@ -93,7 +107,7 @@ function registerFxSetParameterTool(server: McpServer, connection: X32Connection
  * Get effects rack state information
  */
 function registerFxGetStateTool(server: McpServer, connection: X32Connection): void {
-    server.registerTool(
+    (server.registerTool as RegisterTool)(
         'fx_get_state',
         {
             title: 'Get FX State',
@@ -109,7 +123,7 @@ function registerFxGetStateTool(server: McpServer, connection: X32Connection): v
                 openWorldHint: true
             }
         },
-        async ({ fx }): Promise<CallToolResult> => {
+        async ({ fx }: FxGetStateArgs): Promise<CallToolResult> => {
             if (!connection.connected) {
                 return {
                     content: [
@@ -173,7 +187,7 @@ function registerFxGetStateTool(server: McpServer, connection: X32Connection): v
  * Bypass or enable an effects rack
  */
 function registerFxBypassTool(server: McpServer, connection: X32Connection): void {
-    server.registerTool(
+    (server.registerTool as RegisterTool)(
         'fx_bypass',
         {
             title: 'FX Bypass Control',
@@ -190,7 +204,7 @@ function registerFxBypassTool(server: McpServer, connection: X32Connection): voi
                 openWorldHint: true
             }
         },
-        async ({ fx, bypass }): Promise<CallToolResult> => {
+        async ({ fx, bypass }: FxBypassArgs): Promise<CallToolResult> => {
             if (!connection.connected) {
                 return {
                     content: [
