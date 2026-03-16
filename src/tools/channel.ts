@@ -2,12 +2,12 @@ import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { X32Connection } from '../services/x32-connection.js';
-import { faderToDb, formatDb, gainDbToLinear, linearToGainDb } from '../utils/db-converter.js';
+import { faderToDb, formatDb } from '../utils/db-converter.js';
 import { getColorValue, getColorName, getAvailableColors } from '../utils/color-converter.js';
 import { parsePan, formatPan, panToPercent } from '../utils/pan-converter.js';
 import { X32Error } from '../utils/error-helper.js';
 import { createErrorResult, createStructuredTextResult } from './tool-response.js';
-import { volumeUnitSchema, resolveVolume, type VolumeUnit } from './schemas.js';
+import { volumeUnitSchema, resolveVolume, resolveGain, type VolumeUnit } from './schemas.js';
 type ChannelSetVolumeArgs = {
     channel: number;
     value: number;
@@ -79,15 +79,7 @@ function registerChannelSetVolumeTool(server: McpServer, connection: X32Connecti
         },
         async ({ channel, value, unit = 'linear' }: ChannelSetVolumeArgs): Promise<CallToolResult> => {
             if (!connection.connected) {
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: X32Error.notConnected()
-                        }
-                    ],
-                    isError: true
-                };
+                return createErrorResult(X32Error.notConnected());
             }
 
             try {
@@ -150,29 +142,17 @@ function registerChannelSetGainTool(server: McpServer, connection: X32Connection
             }
 
             try {
-                let gainLinear: number;
-                let dbValue: number;
-
-                if (unit === 'db') {
-                    if (gain < -12 || gain > 60) {
-                        return createErrorResult(`Invalid gain dB value: ${gain}. Must be between -12 and +60 dB.`);
-                    }
-                    dbValue = gain;
-                    gainLinear = gainDbToLinear(gain);
-                } else {
-                    if (gain < 0 || gain > 1) {
-                        return createErrorResult(`Invalid linear gain value: ${gain}. Must be between 0.0 and 1.0.`);
-                    }
-                    gainLinear = gain;
-                    dbValue = linearToGainDb(gain);
+                const resolved = resolveGain(gain, unit, [-12, 60]);
+                if ('error' in resolved) {
+                    return createErrorResult(resolved.error);
                 }
 
-                await connection.setChannelParameter(channel, 'head/gain', gainLinear);
+                await connection.setChannelParameter(channel, 'head/gain', resolved.linear);
                 return {
                     content: [
                         {
                             type: 'text',
-                            text: `Set channel ${channel} preamp gain to ${dbValue.toFixed(1)} dB (linear: ${gainLinear.toFixed(3)})`
+                            text: `Set channel ${channel} preamp gain to ${resolved.db.toFixed(1)} dB (linear: ${resolved.linear.toFixed(3)})`
                         }
                     ]
                 };
@@ -214,15 +194,7 @@ function registerChannelMuteTool(server: McpServer, connection: X32Connection): 
         },
         async ({ channel, mute }: ChannelMuteArgs): Promise<CallToolResult> => {
             if (!connection.connected) {
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: X32Error.notConnected()
-                        }
-                    ],
-                    isError: true
-                };
+                return createErrorResult(X32Error.notConnected());
             }
 
             try {
@@ -276,15 +248,7 @@ function registerChannelSoloTool(server: McpServer, connection: X32Connection): 
         },
         async ({ channel, solo }: ChannelSoloArgs): Promise<CallToolResult> => {
             if (!connection.connected) {
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: X32Error.notConnected()
-                        }
-                    ],
-                    isError: true
-                };
+                return createErrorResult(X32Error.notConnected());
             }
 
             try {
@@ -426,15 +390,7 @@ function registerChannelSetEqBandTool(server: McpServer, connection: X32Connecti
         },
         async ({ channel, band, frequency, gain, q }: ChannelSetEqBandArgs): Promise<CallToolResult> => {
             if (!connection.connected) {
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: X32Error.notConnected()
-                        }
-                    ],
-                    isError: true
-                };
+                return createErrorResult(X32Error.notConnected());
             }
 
             try {
@@ -490,15 +446,7 @@ function registerChannelSetNameTool(server: McpServer, connection: X32Connection
         },
         async ({ channel, name }: ChannelSetNameArgs): Promise<CallToolResult> => {
             if (!connection.connected) {
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: X32Error.notConnected()
-                        }
-                    ],
-                    isError: true
-                };
+                return createErrorResult(X32Error.notConnected());
             }
 
             try {
@@ -556,15 +504,7 @@ function registerChannelSetColorTool(server: McpServer, connection: X32Connectio
         },
         async ({ channel, color }: ChannelSetColorArgs): Promise<CallToolResult> => {
             if (!connection.connected) {
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: X32Error.notConnected()
-                        }
-                    ],
-                    isError: true
-                };
+                return createErrorResult(X32Error.notConnected());
             }
 
             try {
@@ -634,15 +574,7 @@ function registerChannelSetPanTool(server: McpServer, connection: X32Connection)
         },
         async ({ channel, pan }: ChannelSetPanArgs): Promise<CallToolResult> => {
             if (!connection.connected) {
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: X32Error.notConnected()
-                        }
-                    ],
-                    isError: true
-                };
+                return createErrorResult(X32Error.notConnected());
             }
 
             try {

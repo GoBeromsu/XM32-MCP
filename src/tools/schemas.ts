@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { dbToFader, faderToDb } from '../utils/db-converter.js';
+import { dbToFader, faderToDb, gainDbToLinear, linearToGainDb } from '../utils/db-converter.js';
 import { X32Error } from '../utils/error-helper.js';
 
 export type VolumeUnit = 'linear' | 'db';
@@ -40,4 +40,25 @@ export function resolveVolume(
         return { error: X32Error.invalidLinear(value) };
     }
     return { linear: value, db: faderToDb(value) };
+}
+
+/**
+ * Resolve a gain input (linear or dB) into both linear and dB values.
+ * Uses the preamp gain curve (gainDbToLinear/linearToGainDb).
+ */
+export function resolveGain(
+    value: number,
+    unit: VolumeUnit,
+    dbRange: [number, number]
+): { linear: number; db: number } | { error: string } {
+    if (unit === 'db') {
+        if (value < dbRange[0] || value > dbRange[1]) {
+            return { error: X32Error.invalidDb(value) };
+        }
+        return { linear: gainDbToLinear(value), db: value };
+    }
+    if (value < 0 || value > 1) {
+        return { error: X32Error.invalidLinear(value) };
+    }
+    return { linear: value, db: linearToGainDb(value) };
 }
