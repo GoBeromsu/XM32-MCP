@@ -78,6 +78,22 @@ export function faderToDb(fader: number): number {
 }
 
 /**
+ * Preamp gain: convert dB to linear (0.0-1.0)
+ * Range: -12 dB to +60 dB (72 dB span, linear mapping)
+ */
+export function gainDbToLinear(db: number): number {
+    return (db + 12) / 72;
+}
+
+/**
+ * Preamp gain: convert linear (0.0-1.0) to dB
+ * Range: -12 dB to +60 dB (72 dB span, linear mapping)
+ */
+export function linearToGainDb(linear: number): number {
+    return -12 + (linear * 72);
+}
+
+/**
  * Common dB presets for quick access
  */
 export const DB_PRESETS = {

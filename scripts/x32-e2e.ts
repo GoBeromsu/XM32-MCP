@@ -25,6 +25,7 @@ const EXPECTED_TOOL_NAMES = [
     'channel_set_gain',
     'channel_mute',
     'channel_solo',
+    'channel_get_state',
     'channel_set_eq_band',
     'channel_set_name',
     'channel_set_color',
@@ -289,6 +290,26 @@ export async function runX32E2E(): Promise<void> {
         assert.match(fxText, /Set FX 1 parameter 01 to 0\.500/);
         const fxValueText = await callToolText(client, 'get_parameter', { address: '/fx/1/par/01' });
         assert.match(fxValueText, /\/fx\/1\/par\/01 = 0\.5/);
+
+        // Verify case-insensitive unit: "dB" should be accepted (lowercased to "db")
+        const chVolDbText = await callToolText(client, 'channel_set_volume', { channel: 1, value: -6, unit: 'dB' });
+        assert.match(chVolDbText, /Set channel 1 to/);
+
+        // Verify renamed mute parameter (was "muted", now "mute")
+        const muteText = await callToolText(client, 'channel_mute', { channel: 1, mute: true });
+        assert.match(muteText, /Channel 1 muted/);
+        const unmuteText = await callToolText(client, 'channel_mute', { channel: 1, mute: false });
+        assert.match(unmuteText, /Channel 1 unmuted/);
+
+        // Verify gain accepts dB unit
+        const gainDbText = await callToolText(client, 'channel_set_gain', { channel: 1, gain: 25, unit: 'db' });
+        assert.match(gainDbText, /Set channel 1 preamp gain to 25\.0 dB/);
+
+        // Verify EQ band accepts individual params (frequency, gain, q)
+        const eqText = await callToolText(client, 'channel_set_eq_band', { channel: 1, band: 1, frequency: 0.5, gain: 0.7 });
+        assert.match(eqText, /Set channel 1 EQ band 1/);
+        assert.match(eqText, /frequency=0\.5/);
+        assert.match(eqText, /gain=0\.7/);
 
         const disconnectText = await callToolText(client, 'connection_disconnect');
         assert.match(disconnectText, /Successfully disconnected from X32\/M32 mixer/);
