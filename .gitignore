@@ -133,3 +133,15 @@ dist/
 
 # Claude development files
 .claude/
+.agents/
+AGENTS.md
+
+# X32 emulator binary
+X32_macOS/
+
+# Reference docs (keep local only)
+docs/UNOFFICIAL X32-M32 OSC REMOTE PROTOCOL.pdf
+docs/OSC-Protocal.md
+docs/X32-OSC-Protocol-Summary.md
+docs/x32-protocol/
+docs/Agent Tools MCP.pdf
