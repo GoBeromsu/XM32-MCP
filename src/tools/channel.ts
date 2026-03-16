@@ -303,45 +303,41 @@ function registerChannelGetStateTool(server: McpServer, connection: X32Connectio
             }
 
             try {
-                const [name, colorValue, fader, on, pan] = await Promise.all([
+                const [name, colorValue, fader, on, pan, soloResult] = await Promise.allSettled([
                     connection.getChannelParameter<string>(channel, 'config/name'),
                     connection.getChannelParameter<number>(channel, 'config/color'),
                     connection.getChannelParameter<number>(channel, 'mix/fader'),
                     connection.getChannelParameter<number>(channel, 'mix/on'),
-                    connection.getChannelParameter<number>(channel, 'mix/pan')
+                    connection.getChannelParameter<number>(channel, 'mix/pan'),
+                    connection.getChannelSolo(channel)
                 ]);
 
-                let soloValue = 0;
-                try {
-                    soloValue = await connection.getChannelSolo(channel);
-                } catch {
-                    try {
-                        soloValue = await connection.getChannelParameter<number>(channel, 'solo');
-                    } catch {
-                        soloValue = 0;
-                    }
-                }
+                const val = <T>(r: PromiseSettledResult<T>, fallback: T): T =>
+                    r.status === 'fulfilled' ? r.value : fallback;
 
-                const rawDbValue = faderToDb(fader);
+                const faderVal = val(fader, 0);
+                const onVal = val(on, 1);
+                const panVal = val(pan, 0.5);
+                const rawDbValue = faderToDb(faderVal);
                 const dbValue = Number.isFinite(rawDbValue) ? rawDbValue : null;
                 const channelState = {
                     channel,
-                    name,
+                    name: val(name, ''),
                     color: {
-                        value: colorValue,
-                        name: getColorName(colorValue) || null
+                        value: val(colorValue, 0),
+                        name: getColorName(val(colorValue, 0)) || null
                     },
                     fader: {
-                        linear: fader,
+                        linear: faderVal,
                         db: dbValue,
                         formatted: formatDb(rawDbValue)
                     },
-                    muted: on === 0,
-                    solo: soloValue === 1,
+                    muted: onVal === 0,
+                    solo: val(soloResult, 0) === 1,
                     pan: {
-                        linear: pan,
-                        formatted: formatPan(pan),
-                        percent: panToPercent(pan)
+                        linear: panVal,
+                        formatted: formatPan(panVal),
+                        percent: panToPercent(panVal)
                     }
                 };
 

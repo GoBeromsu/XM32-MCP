@@ -52,19 +52,6 @@ function registerFxSetParameterTool(server: McpServer, connection: X32Connection
             }
 
             try {
-                // Validate value range
-                if (value < 0 || value > 1) {
-                    return {
-                        content: [
-                            {
-                                type: 'text',
-                                text: `Invalid parameter value: ${value}. Must be between 0.0 and 1.0.\n\nFX parameters use normalized values:\n- 0.0 = minimum parameter value\n- 1.0 = maximum parameter value\n- Interpretation varies by parameter type (time, level, frequency, etc.)\n\nTo adjust this parameter:\n1. Ensure value is in 0.0-1.0 range\n2. Use fx_get_state to see current parameter values\n3. Consult X32/M32 effect documentation for parameter meanings`
-                            }
-                        ],
-                        isError: true
-                    };
-                }
-
                 // Format parameter number with leading zero (01-64)
                 const paramNum = parameter.toString().padStart(2, '0');
                 const address = `/fx/${fx}/par/${paramNum}`;
@@ -126,18 +113,15 @@ function registerFxGetStateTool(server: McpServer, connection: X32Connection): v
                 const typeAddress = `/fx/${fx}/type`;
                 const type = await connection.getParameter<number>(typeAddress);
 
-                // Get a few common parameters (first 6)
+                // Get common parameters (first 6) in parallel
+                const paramNums = Array.from({ length: 6 }, (_, i) => (i + 1).toString().padStart(2, '0'));
+                const results = await Promise.allSettled(
+                    paramNums.map(num => connection.getParameter<number>(`/fx/${fx}/par/${num}`))
+                );
                 const parameters: Record<string, number> = {};
-                for (let i = 1; i <= 6; i++) {
-                    const paramNum = i.toString().padStart(2, '0');
-                    const paramAddress = `/fx/${fx}/par/${paramNum}`;
-                    try {
-                        parameters[paramNum] = await connection.getParameter<number>(paramAddress);
-                    } catch {
-                        // Parameter might not exist for this effect type
-                        parameters[paramNum] = 0;
-                    }
-                }
+                results.forEach((r, i) => {
+                    parameters[paramNums[i]] = r.status === 'fulfilled' ? r.value : 0;
+                });
 
                 const paramList = Object.entries(parameters)
                     .map(([num, val]) => `  Par ${num}: ${val.toFixed(3)}`)
