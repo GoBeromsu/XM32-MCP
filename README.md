@@ -68,7 +68,7 @@ After code changes, run `npm run build` again so Claude Desktop uses the updated
 connection_connect with host="192.168.1.100" and port=10023
 ```
 
-## Available Tools (21 total)
+## Available Tools (25 total)
 
 | Tool                    | Parameters                              |
 | ----------------------- | --------------------------------------- |
@@ -77,11 +77,12 @@ connection_connect with host="192.168.1.100" and port=10023
 | `connection_disconnect` | -                                       |
 | `connection_get_info`   | -                                       |
 | `connection_get_status` | -                                       |
-| **Channel (8)**         |                                         |
+| **Channel (9)**         |                                         |
 | `channel_set_volume`    | `channel`, `value`, `unit`              |
 | `channel_set_gain`      | `channel`, `gain`                       |
 | `channel_mute`          | `channel`, `muted`                      |
 | `channel_solo`          | `channel`, `solo`                       |
+| `channel_get_state`     | `channel`                               |
 | `channel_set_name`      | `channel`, `name`                       |
 | `channel_set_color`     | `channel`, `color`                      |
 | `channel_set_pan`       | `channel`, `pan`                        |

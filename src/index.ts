@@ -78,6 +78,7 @@ async function main() {
     console.error('  - channel_set_gain: Set preamp gain');
     console.error('  - channel_mute: Mute/unmute channel');
     console.error('  - channel_solo: Solo/unsolo channel');
+    console.error('  - channel_get_state: Get complete channel state');
     console.error('  - channel_set_name: Set channel name');
     console.error('  - channel_set_color: Set channel color');
     console.error('  - channel_set_pan: Set stereo position');

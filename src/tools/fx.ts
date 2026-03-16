@@ -2,8 +2,8 @@ import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { X32Connection } from '../services/x32-connection.js';
+import { createErrorResult, createStructuredTextResult } from './tool-response.js';
 
-type RegisterTool = (name: string, config: unknown, handler: unknown) => void;
 type FxSetParameterArgs = {
     fx: number;
     parameter: number;
@@ -17,6 +17,12 @@ type FxBypassArgs = {
     bypass: boolean;
 };
 
+const fxStateOutputSchema = z.object({
+    fx: z.number(),
+    type: z.number(),
+    parameters: z.record(z.number())
+});
+
 /**
  * FX (effects) domain tools
  * Semantic, task-based tools for effects rack control
@@ -27,7 +33,7 @@ type FxBypassArgs = {
  * Set effects parameter value
  */
 function registerFxSetParameterTool(server: McpServer, connection: X32Connection): void {
-    (server.registerTool as RegisterTool)(
+    server.registerTool(
         'fx_set_parameter',
         {
             title: 'Set FX Parameter',
@@ -107,7 +113,7 @@ function registerFxSetParameterTool(server: McpServer, connection: X32Connection
  * Get effects rack state information
  */
 function registerFxGetStateTool(server: McpServer, connection: X32Connection): void {
-    (server.registerTool as RegisterTool)(
+    server.registerTool(
         'fx_get_state',
         {
             title: 'Get FX State',
@@ -116,6 +122,7 @@ function registerFxGetStateTool(server: McpServer, connection: X32Connection): v
             inputSchema: {
                 fx: z.number().min(1).max(8).describe('Effects rack number from 1 to 8')
             },
+            outputSchema: fxStateOutputSchema,
             annotations: {
                 readOnlyHint: true,
                 destructiveHint: false,
@@ -125,15 +132,7 @@ function registerFxGetStateTool(server: McpServer, connection: X32Connection): v
         },
         async ({ fx }: FxGetStateArgs): Promise<CallToolResult> => {
             if (!connection.connected) {
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: 'Not connected to X32/M32 mixer. Use connection_connect first.'
-                        }
-                    ],
-                    isError: true
-                };
+                return createErrorResult('Not connected to X32/M32 mixer. Use connection_connect first.');
             }
 
             try {
@@ -158,25 +157,18 @@ function registerFxGetStateTool(server: McpServer, connection: X32Connection): v
                     .map(([num, val]) => `  Par ${num}: ${val.toFixed(3)}`)
                     .join('\n');
 
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: `FX ${fx} State:\n  Type: ${type}\n${paramList}`
-                        }
-                    ]
+                const state = {
+                    fx,
+                    type,
+                    parameters
                 };
+
+                return createStructuredTextResult(`FX ${fx} State:\n  Type: ${type}\n${paramList}`, state);
             } catch (error) {
                 const errorMsg = error instanceof Error ? error.message : String(error);
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: `Failed to get FX state: ${errorMsg}\n\nFX Rack System:\n- X32/M32 provides 8 independent effects racks (1-8)\n- Each rack can load different effect types (reverb, delay, chorus, etc.)\n- Effect type determines which parameters are active\n- Parameters vary by effect: some use 6, others up to 64\n\nTroubleshooting:\n1. Verify FX rack number is 1-8 (you specified: ${fx})\n2. Ensure mixer connection is active\n3. Check that mixer is responding to OSC commands\n4. Try a different FX rack number if this one is not responding`
-                        }
-                    ],
-                    isError: true
-                };
+                return createErrorResult(
+                    `Failed to get FX state: ${errorMsg}\n\nFX Rack System:\n- X32/M32 provides 8 independent effects racks (1-8)\n- Each rack can load different effect types (reverb, delay, chorus, etc.)\n- Effect type determines which parameters are active\n- Parameters vary by effect: some use 6, others up to 64\n\nTroubleshooting:\n1. Verify FX rack number is 1-8 (you specified: ${fx})\n2. Ensure mixer connection is active\n3. Check that mixer is responding to OSC commands\n4. Try a different FX rack number if this one is not responding`
+                );
             }
         }
     );
@@ -187,7 +179,7 @@ function registerFxGetStateTool(server: McpServer, connection: X32Connection): v
  * Bypass or enable an effects rack
  */
 function registerFxBypassTool(server: McpServer, connection: X32Connection): void {
-    (server.registerTool as RegisterTool)(
+    server.registerTool(
         'fx_bypass',
         {
             title: 'FX Bypass Control',

@@ -4,7 +4,6 @@ import { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { X32Connection } from '../services/x32-connection.js';
 import { dbToFader, faderToDb, formatDb } from '../utils/db-converter.js';
 
-type RegisterTool = (name: string, config: unknown, handler: unknown) => void;
 type VolumeUnit = 'linear' | 'db';
 type OutputLevelArgs = {
     value: number;
@@ -24,7 +23,7 @@ type MainMuteArgs = {
  * Set main stereo output volume
  */
 function registerMainSetVolumeTool(server: McpServer, connection: X32Connection): void {
-    (server.registerTool as RegisterTool)(
+    server.registerTool(
         'main_set_volume',
         {
             title: 'Set Main Stereo Output Volume',
@@ -124,7 +123,7 @@ function registerMainSetVolumeTool(server: McpServer, connection: X32Connection)
  * Mute or unmute main stereo output
  */
 function registerMainMuteTool(server: McpServer, connection: X32Connection): void {
-    (server.registerTool as RegisterTool)(
+    server.registerTool(
         'main_mute',
         {
             title: 'Main Stereo Output Mute Control',
@@ -186,7 +185,7 @@ function registerMainMuteTool(server: McpServer, connection: X32Connection): voi
  * Set monitor output level
  */
 function registerMonitorSetLevelTool(server: McpServer, connection: X32Connection): void {
-    (server.registerTool as RegisterTool)(
+    server.registerTool(
         'monitor_set_level',
         {
             title: 'Set Monitor Output Level',

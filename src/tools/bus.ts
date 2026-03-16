@@ -3,8 +3,8 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { X32Connection } from '../services/x32-connection.js';
 import { dbToFader, faderToDb, formatDb } from '../utils/db-converter.js';
+import { createErrorResult, createStructuredTextResult } from './tool-response.js';
 
-type RegisterTool = (name: string, config: unknown, handler: unknown) => void;
 type VolumeUnit = 'linear' | 'db';
 type BusSetVolumeArgs = {
     bus: number;
@@ -25,6 +25,20 @@ type BusGetStateArgs = {
     bus: number;
 };
 
+const busStateOutputSchema = z.object({
+    bus: z.number(),
+    name: z.string().nullable(),
+    color: z.number().nullable(),
+    fader: z.object({
+        linear: z.number(),
+        db: z.number().nullable(),
+        formatted: z.string()
+    }),
+    muted: z.boolean(),
+    on: z.number(),
+    pan: z.number()
+});
+
 /**
  * Bus domain tools
  * Semantic, task-based tools for mix bus control
@@ -35,7 +49,7 @@ type BusGetStateArgs = {
  * Set bus fader level
  */
 function registerBusSetVolumeTool(server: McpServer, connection: X32Connection): void {
-    (server.registerTool as RegisterTool)(
+    server.registerTool(
         'bus_set_volume',
         {
             title: 'Set Bus Fader Volume',
@@ -135,7 +149,7 @@ function registerBusSetVolumeTool(server: McpServer, connection: X32Connection):
  * Mute or unmute a bus
  */
 function registerBusMuteTool(server: McpServer, connection: X32Connection): void {
-    (server.registerTool as RegisterTool)(
+    server.registerTool(
         'bus_mute',
         {
             title: 'Bus Mute Control',
@@ -196,7 +210,7 @@ function registerBusMuteTool(server: McpServer, connection: X32Connection): void
  * Set channel send level to a bus
  */
 function registerBusSetSendTool(server: McpServer, connection: X32Connection): void {
-    (server.registerTool as RegisterTool)(
+    server.registerTool(
         'bus_set_send',
         {
             title: 'Set Channel Send to Bus',
@@ -302,7 +316,7 @@ function registerBusSetSendTool(server: McpServer, connection: X32Connection): v
  * Get complete bus state
  */
 function registerBusGetStateTool(server: McpServer, connection: X32Connection): void {
-    (server.registerTool as RegisterTool)(
+    server.registerTool(
         'bus_get_state',
         {
             title: 'Get Bus State',
@@ -311,6 +325,7 @@ function registerBusGetStateTool(server: McpServer, connection: X32Connection): 
             inputSchema: {
                 bus: z.number().min(1).max(16).describe('Mix bus number from 1 to 16')
             },
+            outputSchema: busStateOutputSchema,
             annotations: {
                 readOnlyHint: true,
                 destructiveHint: false,
@@ -320,15 +335,9 @@ function registerBusGetStateTool(server: McpServer, connection: X32Connection): 
         },
         async ({ bus }: BusGetStateArgs): Promise<CallToolResult> => {
             if (!connection.connected) {
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: 'Not connected to X32/M32 mixer. First, establish connection using connection_connect tool with parameters:\n  - host: IP address of mixer (e.g., "192.168.1.100")\n  - port: OSC port, typically 10023\n\nExample: connection_connect with host="192.168.1.100" and port=10023'
-                        }
-                    ],
-                    isError: true
-                };
+                return createErrorResult(
+                    'Not connected to X32/M32 mixer. First, establish connection using connection_connect tool with parameters:\n  - host: IP address of mixer (e.g., "192.168.1.100")\n  - port: OSC port, typically 10023\n\nExample: connection_connect with host="192.168.1.100" and port=10023'
+                );
             }
 
             try {
@@ -354,39 +363,39 @@ function registerBusGetStateTool(server: McpServer, connection: X32Connection): 
                 }
 
                 // Convert values to human-readable formats
-                const dbValue = faderToDb(fader);
+                const rawDbValue = faderToDb(fader);
+                const dbValue = Number.isFinite(rawDbValue) ? rawDbValue : null;
                 const muted = on === 0;
 
                 // Build state response
-                let stateText = `Bus ${bus} state:\n`;
-                if (name) {
-                    stateText += `  Name: ${name}\n`;
+                const state = {
+                    bus,
+                    name: name || null,
+                    color: color >= 0 ? color : null,
+                    fader: {
+                        linear: fader,
+                        db: dbValue,
+                        formatted: formatDb(rawDbValue)
+                    },
+                    muted,
+                    on,
+                    pan
+                };
+
+                let summary = `Bus ${bus} state:\n`;
+                if (state.name) {
+                    summary += `  Name: ${state.name}\n`;
                 }
-                stateText += `  Fader: ${formatDb(dbValue)} (linear: ${fader.toFixed(3)})\n`;
-                stateText += `  Status: ${muted ? 'MUTED' : 'ACTIVE'}\n`;
-                stateText += `  Pan: ${pan.toFixed(3)}`;
-                if (color >= 0) {
-                    stateText += `\n  Color: ${color}`;
+                summary += `  Fader: ${state.fader.formatted} (linear: ${state.fader.linear.toFixed(3)})\n`;
+                summary += `  Status: ${state.muted ? 'MUTED' : 'ACTIVE'}\n`;
+                summary += `  Pan: ${state.pan.toFixed(3)}`;
+                if (state.color !== null) {
+                    summary += `\n  Color: ${state.color}`;
                 }
 
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: stateText
-                        }
-                    ]
-                };
+                return createStructuredTextResult(summary, state);
             } catch (error) {
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: `Failed to get bus state: ${error instanceof Error ? error.message : String(error)}`
-                        }
-                    ],
-                    isError: true
-                };
+                return createErrorResult(`Failed to get bus state: ${error instanceof Error ? error.message : String(error)}`);
             }
         }
     );

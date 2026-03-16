@@ -2,12 +2,25 @@ import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { X32Connection } from '../services/x32-connection.js';
+import { createErrorResult, createStructuredTextResult, createTextResult } from './tool-response.js';
 
-type RegisterTool = (name: string, config: unknown, handler: unknown) => void;
 type ConnectionConnectArgs = {
     host: string;
     port?: number;
 };
+
+const connectionInfoOutputSchema = z.object({
+    consoleModel: z.string(),
+    consoleVersion: z.string(),
+    serverName: z.string(),
+    serverVersion: z.string()
+});
+
+const connectionStatusOutputSchema = z.object({
+    state: z.string(),
+    ipAddress: z.string(),
+    serverName: z.string()
+});
 
 /**
  * Connection domain tools
@@ -19,7 +32,7 @@ type ConnectionConnectArgs = {
  * Establishes connection to X32/M32 mixer
  */
 function registerConnectionConnectTool(server: McpServer, connection: X32Connection): void {
-    (server.registerTool as RegisterTool)(
+    server.registerTool(
         'connection_connect',
         {
             title: 'Connect to X32/M32 Mixer',
@@ -38,25 +51,13 @@ function registerConnectionConnectTool(server: McpServer, connection: X32Connect
         },
         async ({ host, port = 10023 }: ConnectionConnectArgs): Promise<CallToolResult> => {
             if (connection.connected) {
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: 'Already connected to X32/M32 mixer'
-                        }
-                    ]
-                };
+                return createTextResult('Already connected to X32/M32 mixer');
             }
 
             try {
                 await connection.connect({ host, port });
                 return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: `Successfully connected to X32/M32 at ${host}:${port}`
-                        }
-                    ]
+                    content: [{ type: 'text', text: `Successfully connected to X32/M32 at ${host}:${port}` }]
                 };
             } catch (error) {
                 const errorMessage = error instanceof Error ? error.message : String(error);
@@ -86,15 +87,7 @@ function registerConnectionConnectTool(server: McpServer, connection: X32Connect
                     `- Try the standard X32/M32 port (10023) or check mixer documentation`
                 ].join('\n');
 
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: troubleshootingSteps
-                        }
-                    ],
-                    isError: true
-                };
+                return createErrorResult(troubleshootingSteps);
             }
         }
     );
@@ -105,7 +98,7 @@ function registerConnectionConnectTool(server: McpServer, connection: X32Connect
  * Disconnects from X32/M32 mixer
  */
 function registerConnectionDisconnectTool(server: McpServer, connection: X32Connection): void {
-    (server.registerTool as RegisterTool)(
+    server.registerTool(
         'connection_disconnect',
         {
             title: 'Disconnect from X32/M32 Mixer',
@@ -121,26 +114,12 @@ function registerConnectionDisconnectTool(server: McpServer, connection: X32Conn
         },
         async (): Promise<CallToolResult> => {
             if (!connection.connected) {
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: 'Not connected to X32/M32 mixer'
-                        }
-                    ]
-                };
+                return createTextResult('Not connected to X32/M32 mixer');
             }
 
             try {
                 await connection.disconnect();
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: 'Successfully disconnected from X32/M32 mixer'
-                        }
-                    ]
-                };
+                return createTextResult('Successfully disconnected from X32/M32 mixer');
             } catch (error) {
                 const errorMessage = error instanceof Error ? error.message : String(error);
                 const troubleshootingSteps = [
@@ -166,15 +145,7 @@ function registerConnectionDisconnectTool(server: McpServer, connection: X32Conn
                     'to establish a new connection. The connection state will be reset.'
                 ].join('\n');
 
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: troubleshootingSteps
-                        }
-                    ],
-                    isError: true
-                };
+                return createErrorResult(troubleshootingSteps);
             }
         }
     );
@@ -185,13 +156,14 @@ function registerConnectionDisconnectTool(server: McpServer, connection: X32Conn
  * Retrieves console information from X32/M32 mixer
  */
 function registerConnectionGetInfoTool(server: McpServer, connection: X32Connection): void {
-    (server.registerTool as RegisterTool)(
+    server.registerTool(
         'connection_get_info',
         {
             title: 'Get X32/M32 Console Information',
             description:
                 'Retrieves detailed console information from connected X32 or M32 digital mixing console. Returns model name, firmware version, server details, and other system information useful for identifying mixer capabilities and troubleshooting.',
             inputSchema: {},
+            outputSchema: connectionInfoOutputSchema,
             annotations: {
                 readOnlyHint: true,
                 destructiveHint: false,
@@ -221,34 +193,19 @@ function registerConnectionGetInfoTool(server: McpServer, connection: X32Connect
                     'After connecting, you can use this tool to get console information.'
                 ].join('\n');
 
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: notConnectedMessage
-                        }
-                    ],
-                    isError: true
-                };
+                return createErrorResult(notConnectedMessage);
             }
 
             try {
                 const info = await connection.getInfo();
-                const output = [
+                const summary = [
                     `Console Model: ${info.consoleModel}`,
                     `Console Version: ${info.consoleVersion}`,
                     `McpServer Name: ${info.serverName}`,
                     `McpServer Version: ${info.serverVersion}`
                 ].join('\n');
 
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: output
-                        }
-                    ]
-                };
+                return createStructuredTextResult(summary, info);
             } catch (error) {
                 const errorMessage = error instanceof Error ? error.message : String(error);
                 const troubleshootingSteps = [
@@ -281,15 +238,7 @@ function registerConnectionGetInfoTool(server: McpServer, connection: X32Connect
                     '   → Verify no other applications are heavily using OSC communication'
                 ].join('\n');
 
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: troubleshootingSteps
-                        }
-                    ],
-                    isError: true
-                };
+                return createErrorResult(troubleshootingSteps);
             }
         }
     );
@@ -300,13 +249,14 @@ function registerConnectionGetInfoTool(server: McpServer, connection: X32Connect
  * Retrieves current status from X32/M32 mixer
  */
 function registerConnectionGetStatusTool(server: McpServer, connection: X32Connection): void {
-    (server.registerTool as RegisterTool)(
+    server.registerTool(
         'connection_get_status',
         {
             title: 'Get X32/M32 Connection Status',
             description:
                 'Retrieves the current operational status of the connected X32 or M32 digital mixing console. Returns connection state, network information, and server details to monitor mixer availability and network configuration.',
             inputSchema: {},
+            outputSchema: connectionStatusOutputSchema,
             annotations: {
                 readOnlyHint: true,
                 destructiveHint: false,
@@ -336,31 +286,14 @@ function registerConnectionGetStatusTool(server: McpServer, connection: X32Conne
                     'After connecting, you can use this tool to monitor connection status.'
                 ].join('\n');
 
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: notConnectedMessage
-                        }
-                    ],
-                    isError: true
-                };
+                return createErrorResult(notConnectedMessage);
             }
 
             try {
                 const status = await connection.getStatus();
-                const output = [`State: ${status.state}`, `IP Address: ${status.ipAddress}`, `McpServer Name: ${status.serverName}`].join(
-                    '\n'
-                );
+                const summary = [`State: ${status.state}`, `IP Address: ${status.ipAddress}`, `McpServer Name: ${status.serverName}`].join('\n');
 
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: output
-                        }
-                    ]
-                };
+                return createStructuredTextResult(summary, status);
             } catch (error) {
                 const errorMessage = error instanceof Error ? error.message : String(error);
                 const troubleshootingSteps = [
@@ -398,15 +331,7 @@ function registerConnectionGetStatusTool(server: McpServer, connection: X32Conne
                     '   → Check for network configuration changes'
                 ].join('\n');
 
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: troubleshootingSteps
-                        }
-                    ],
-                    isError: true
-                };
+                return createErrorResult(troubleshootingSteps);
             }
         }
     );

@@ -6,8 +6,8 @@ import { dbToFader, faderToDb, formatDb } from '../utils/db-converter.js';
 import { getColorValue, getColorName, getAvailableColors } from '../utils/color-converter.js';
 import { parsePan, formatPan, panToPercent } from '../utils/pan-converter.js';
 import { X32Error } from '../utils/error-helper.js';
+import { createErrorResult, createStructuredTextResult } from './tool-response.js';
 
-type RegisterTool = (name: string, config: unknown, handler: unknown) => void;
 type VolumeUnit = 'linear' | 'db';
 type ChannelEqParameter = 'f' | 'g' | 'q';
 type ChannelSetVolumeArgs = {
@@ -45,6 +45,31 @@ type ChannelSetPanArgs = {
     channel: number;
     pan: string | number;
 };
+type ChannelGetStateArgs = {
+    channel: number;
+};
+
+const channelStateOutputSchema = z.object({
+    channel: z.number(),
+    name: z.string(),
+    color: z.object({
+        value: z.number(),
+        name: z.string().nullable()
+    }),
+    fader: z.object({
+        linear: z.number(),
+        db: z.number().nullable(),
+        formatted: z.string()
+    }),
+    muted: z.boolean(),
+    on: z.number(),
+    solo: z.boolean(),
+    pan: z.object({
+        linear: z.number(),
+        formatted: z.string(),
+        percent: z.number()
+    })
+});
 
 /**
  * Channel domain tools
@@ -56,7 +81,7 @@ type ChannelSetPanArgs = {
  * Set channel fader level
  */
 function registerChannelSetVolumeTool(server: McpServer, connection: X32Connection): void {
-    (server.registerTool as RegisterTool)(
+    server.registerTool(
         'channel_set_volume',
         {
             title: 'Set Channel Fader Volume',
@@ -156,7 +181,7 @@ function registerChannelSetVolumeTool(server: McpServer, connection: X32Connecti
  * Set channel preamp gain
  */
 function registerChannelSetGainTool(server: McpServer, connection: X32Connection): void {
-    (server.registerTool as RegisterTool)(
+    server.registerTool(
         'channel_set_gain',
         {
             title: 'Set Channel Preamp Gain',
@@ -216,7 +241,7 @@ function registerChannelSetGainTool(server: McpServer, connection: X32Connection
  * Mute or unmute a channel
  */
 function registerChannelMuteTool(server: McpServer, connection: X32Connection): void {
-    (server.registerTool as RegisterTool)(
+    server.registerTool(
         'channel_mute',
         {
             title: 'Channel Mute Control',
@@ -277,7 +302,7 @@ function registerChannelMuteTool(server: McpServer, connection: X32Connection): 
  * Solo or unsolo a channel
  */
 function registerChannelSoloTool(server: McpServer, connection: X32Connection): void {
-    (server.registerTool as RegisterTool)(
+    server.registerTool(
         'channel_solo',
         {
             title: 'Channel Solo Control',
@@ -308,8 +333,7 @@ function registerChannelSoloTool(server: McpServer, connection: X32Connection): 
             }
 
             try {
-                // Note: X32 solo is controlled via /-stat/solosw/XX, not channel parameter
-                // For now, we'll use mix send as a workaround
+                await connection.setChannelSolo(channel, solo);
                 return {
                     content: [
                         {
@@ -334,11 +358,100 @@ function registerChannelSoloTool(server: McpServer, connection: X32Connection): 
 }
 
 /**
+ * Register channel_get_state tool
+ * Get complete channel state
+ */
+function registerChannelGetStateTool(server: McpServer, connection: X32Connection): void {
+    server.registerTool(
+        'channel_get_state',
+        {
+            title: 'Get Channel State',
+            description:
+                'Get the complete state of an input channel including label, color, fader level, mute state, solo state, and pan position. Returns both machine-readable values and human-readable summaries.',
+            inputSchema: {
+                channel: z.number().min(1).max(32).describe('Input channel number from 1 to 32')
+            },
+            outputSchema: channelStateOutputSchema,
+            annotations: {
+                readOnlyHint: true,
+                destructiveHint: false,
+                idempotentHint: true,
+                openWorldHint: true
+            }
+        },
+        async ({ channel }: ChannelGetStateArgs): Promise<CallToolResult> => {
+            if (!connection.connected) {
+                return createErrorResult(X32Error.notConnected());
+            }
+
+            try {
+                const [name, colorValue, fader, on, pan] = await Promise.all([
+                    connection.getChannelParameter<string>(channel, 'config/name'),
+                    connection.getChannelParameter<number>(channel, 'config/color'),
+                    connection.getChannelParameter<number>(channel, 'mix/fader'),
+                    connection.getChannelParameter<number>(channel, 'mix/on'),
+                    connection.getChannelParameter<number>(channel, 'mix/pan')
+                ]);
+
+                let soloValue = 0;
+                try {
+                    soloValue = await connection.getChannelSolo(channel);
+                } catch {
+                    try {
+                        soloValue = await connection.getChannelParameter<number>(channel, 'solo');
+                    } catch {
+                        soloValue = 0;
+                    }
+                }
+
+                const rawDbValue = faderToDb(fader);
+                const dbValue = Number.isFinite(rawDbValue) ? rawDbValue : null;
+                const channelState = {
+                    channel,
+                    name,
+                    color: {
+                        value: colorValue,
+                        name: getColorName(colorValue) || null
+                    },
+                    fader: {
+                        linear: fader,
+                        db: dbValue,
+                        formatted: formatDb(rawDbValue)
+                    },
+                    muted: on === 0,
+                    on,
+                    solo: soloValue === 1,
+                    pan: {
+                        linear: pan,
+                        formatted: formatPan(pan),
+                        percent: panToPercent(pan)
+                    }
+                };
+
+                const summary = [
+                    `Channel ${channel} state:`,
+                    `  Name: ${channelState.name}`,
+                    `  Color: ${channelState.color.name ?? channelState.color.value}`,
+                    `  Fader: ${channelState.fader.formatted} (linear: ${channelState.fader.linear.toFixed(3)})`,
+                    `  Status: ${channelState.muted ? 'MUTED' : 'ACTIVE'}`,
+                    `  Solo: ${channelState.solo ? 'ON' : 'OFF'}`,
+                    `  Pan: ${channelState.pan.formatted} (${channelState.pan.percent > 0 ? '+' : ''}${channelState.pan.percent.toFixed(0)}%)`
+                ].join('\n');
+
+                return createStructuredTextResult(summary, channelState);
+            } catch (error) {
+                return createErrorResult(`Failed to get channel state: ${error instanceof Error ? error.message : String(error)}`);
+            }
+        }
+    );
+}
+
+/**
  * Register channel_set_eq_band tool
  * Set specific EQ band parameters
  */
 function registerChannelSetEqBandTool(server: McpServer, connection: X32Connection): void {
-    (server.registerTool as RegisterTool)(
+    server.registerTool(
         'channel_set_eq_band',
         {
             title: 'Set Channel EQ Band',
@@ -402,7 +515,7 @@ function registerChannelSetEqBandTool(server: McpServer, connection: X32Connecti
  * Set channel name/label
  */
 function registerChannelSetNameTool(server: McpServer, connection: X32Connection): void {
-    (server.registerTool as RegisterTool)(
+    server.registerTool(
         'channel_set_name',
         {
             title: 'Set Channel Name',
@@ -464,7 +577,7 @@ function registerChannelSetNameTool(server: McpServer, connection: X32Connection
  * Set channel strip color
  */
 function registerChannelSetColorTool(server: McpServer, connection: X32Connection): void {
-    (server.registerTool as RegisterTool)(
+    server.registerTool(
         'channel_set_color',
         {
             title: 'Set Channel Color',
@@ -543,7 +656,7 @@ function registerChannelSetColorTool(server: McpServer, connection: X32Connectio
  * Set channel stereo positioning
  */
 function registerChannelSetPanTool(server: McpServer, connection: X32Connection): void {
-    (server.registerTool as RegisterTool)(
+    server.registerTool(
         'channel_set_pan',
         {
             title: 'Set Channel Pan',
@@ -624,6 +737,7 @@ export function registerChannelTools(server: McpServer, connection: X32Connectio
     registerChannelSetGainTool(server, connection);
     registerChannelMuteTool(server, connection);
     registerChannelSoloTool(server, connection);
+    registerChannelGetStateTool(server, connection);
     registerChannelSetEqBandTool(server, connection);
     registerChannelSetNameTool(server, connection);
     registerChannelSetColorTool(server, connection);

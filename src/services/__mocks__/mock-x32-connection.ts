@@ -40,6 +40,7 @@ export class MockX32Connection extends EventEmitter {
             this.parameterStore.set(`/ch/${channelNum}/mix/on`, 1); // Unmuted
             this.parameterStore.set(`/ch/${channelNum}/mix/pan`, 0.5); // Center
             this.parameterStore.set(`/ch/${channelNum}/solo`, 0); // Not soloed
+            this.parameterStore.set(`/-stat/solosw/${channelNum}`, 0); // Not soloed
         }
 
         // Initialize default bus parameters (16 buses)
@@ -217,6 +218,29 @@ export class MockX32Connection extends EventEmitter {
         }
         const ch = channel.toString().padStart(2, '0');
         await this.setParameter(`/ch/${ch}/${param}`, value);
+    }
+
+    /**
+     * Mock get channel solo state from the X32 solo switch status path.
+     */
+    async getChannelSolo(channel: number): Promise<number> {
+        if (channel < 1 || channel > 32) {
+            throw new Error('Channel must be between 1 and 32');
+        }
+        const ch = channel.toString().padStart(2, '0');
+        return this.getParameter<number>(`/-stat/solosw/${ch}`);
+    }
+
+    /**
+     * Mock set channel solo state using the X32 solo switch status path.
+     */
+    async setChannelSolo(channel: number, solo: boolean): Promise<void> {
+        if (channel < 1 || channel > 32) {
+            throw new Error('Channel must be between 1 and 32');
+        }
+        const ch = channel.toString().padStart(2, '0');
+        await this.setParameter(`/-stat/solosw/${ch}`, solo ? 1 : 0);
+        this.parameterStore.set(`/ch/${ch}/solo`, solo ? 1 : 0);
     }
 
     /**

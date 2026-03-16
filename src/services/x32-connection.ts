@@ -261,6 +261,32 @@ export class X32Connection extends EventEmitter {
     }
 
     /**
+     * Get channel solo state from the X32 solo switch status path.
+     * @param channel Channel number (1-32)
+     * @returns Solo state as 0 or 1
+     */
+    async getChannelSolo(channel: number): Promise<number> {
+        if (channel < 1 || channel > 32) {
+            throw new Error('Channel must be between 1 and 32');
+        }
+        const ch = channel.toString().padStart(2, '0');
+        return this.getParameter<number>(`/-stat/solosw/${ch}`);
+    }
+
+    /**
+     * Set channel solo state using the X32 solo switch status path.
+     * @param channel Channel number (1-32)
+     * @param solo True to solo, false to unsolo
+     */
+    async setChannelSolo(channel: number, solo: boolean): Promise<void> {
+        if (channel < 1 || channel > 32) {
+            throw new Error('Channel must be between 1 and 32');
+        }
+        const ch = channel.toString().padStart(2, '0');
+        await this.setParameter(`/-stat/solosw/${ch}`, solo ? 1 : 0);
+    }
+
+    /**
      * Get bus parameter
      * @param bus Bus number (1-16)
      * @param param Parameter path (e.g., 'mix/fader', 'mix/on')
