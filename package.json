@@ -1,6 +1,6 @@
 {
     "name": "x-m32-mcp-server",
-    "version": "3.2.1",
+    "version": "3.3.0",
     "description": "MCP server for controlling Behringer X32/M32 digital mixing consoles via OSC",
     "license": "MIT",
     "author": "Beomsu Koh",
